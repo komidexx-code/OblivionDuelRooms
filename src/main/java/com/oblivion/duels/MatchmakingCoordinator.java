@@ -2,7 +2,6 @@
 package com.oblivion.duels;
 
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -16,6 +15,7 @@ public final class MatchmakingCoordinator {
     private final MatchmakingManager matchmaking;
     private final MatchManager matchManager;
     private final ArenaManager arenaManager;
+    private final MatchPreparationManager preparationManager;
 
     private BukkitTask task;
 
@@ -29,6 +29,12 @@ public final class MatchmakingCoordinator {
         this.matchmaking = matchmaking;
         this.matchManager = matchManager;
         this.arenaManager = arenaManager;
+
+        this.preparationManager = new MatchPreparationManager(
+                plugin,
+                matchManager,
+                arenaManager
+        );
     }
 
     public void start() {
@@ -36,7 +42,6 @@ public final class MatchmakingCoordinator {
             return;
         }
 
-        // Check matchmaking queues every second.
         task = Bukkit.getScheduler().runTaskTimer(
                 plugin,
                 this::processQueues,
@@ -50,6 +55,8 @@ public final class MatchmakingCoordinator {
             task.cancel();
             task = null;
         }
+
+        preparationManager.shutdown();
     }
 
     private void processQueues() {
@@ -69,7 +76,6 @@ public final class MatchmakingCoordinator {
                 return;
             }
 
-            // Remove players who are offline or already in a match.
             boolean invalidPlayerFound = false;
 
             for (UUID playerId : players) {
@@ -90,6 +96,15 @@ public final class MatchmakingCoordinator {
             DuelArena arena = arenaManager.getAvailableArena();
 
             if (arena == null) {
+                return;
+            }
+
+            if (!arena.isReady()) {
+                plugin.getLogger().warning(
+                        "Arena " + arena.getName()
+                                + " is not ready and cannot be used."
+                );
+
                 return;
             }
 
@@ -133,61 +148,17 @@ public final class MatchmakingCoordinator {
                 return;
             }
 
-            notifyPlayers(match, arena);
-        }
-    }
+            boolean prepared = preparationManager.prepareMatch(
+                    match,
+                    arena
+            );
 
-    private void notifyPlayers(
-            DuelMatch match,
-            DuelArena arena
-    ) {
-        String prefix = ChatColor.DARK_GRAY
-                + "[" + ChatColor.LIGHT_PURPLE
-                + "OblivionDuels" + ChatColor.DARK_GRAY
-                + "] ";
-
-        for (UUID playerId : match.getTeamA()) {
-            Player player = Bukkit.getPlayer(playerId);
-
-            if (player != null) {
-                player.sendMessage(prefix + ChatColor.GREEN
-                        + "A match has been prepared!");
-
-                player.sendMessage(ChatColor.GRAY
-                        + "Mode: " + match.getTeamSize()
-                        + "v" + match.getTeamSize());
-
-                player.sendMessage(ChatColor.GRAY
-                        + "Arena: " + arena.getName());
-
-                player.sendMessage(ChatColor.GRAY
-                        + "Team: A");
+            if (!prepared) {
+                plugin.getLogger().warning(
+                        "Could not prepare match "
+                                + match.getMatchId()
+                );
             }
         }
-
-        for (UUID playerId : match.getTeamB()) {
-            Player player = Bukkit.getPlayer(playerId);
-
-            if (player != null) {
-                player.sendMessage(prefix + ChatColor.GREEN
-                        + "A match has been prepared!");
-
-                player.sendMessage(ChatColor.GRAY
-                        + "Mode: " + match.getTeamSize()
-                        + "v" + match.getTeamSize());
-
-                player.sendMessage(ChatColor.GRAY
-                        + "Arena: " + arena.getName());
-
-                player.sendMessage(ChatColor.GRAY
-                        + "Team: B");
-            }
-        }
-
-        plugin.getLogger().info(
-                "Prepared " + match.getTeamSize()
-                        + "v" + match.getTeamSize()
-                        + " match in arena " + arena.getName()
-        );
     }
 }
