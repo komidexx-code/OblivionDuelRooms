@@ -2,6 +2,7 @@
 package com.oblivion.duels;
 
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
@@ -35,30 +36,35 @@ public final class ArenaSelection implements Listener {
 
         Bukkit.getPluginManager().registerEvents(this, plugin);
 
-        startParticleTask();
+        startParticleDisplay();
     }
 
     public ItemStack createWand() {
         ItemStack wand = new ItemStack(Material.WOODEN_AXE);
+
         ItemMeta meta = wand.getItemMeta();
 
-        meta.setDisplayName("§5§lOblivion Arena Selector");
-        meta.setLore(java.util.List.of(
-                "§7Left-click: §fPosition 1",
-                "§7Right-click: §fPosition 2"
-        ));
+        if (meta != null) {
+            meta.setDisplayName("§5§lOblivion Arena Selector");
+            meta.setLore(java.util.List.of(
+                    "§7Left-click: Position 1",
+                    "§7Right-click: Position 2",
+                    "§8OblivionDuels Arena Tool"
+            ));
 
-        meta.getPersistentDataContainer().set(
-                wandKey,
-                PersistentDataType.BYTE,
-                (byte) 1
-        );
+            meta.getPersistentDataContainer().set(
+                    wandKey,
+                    PersistentDataType.BYTE,
+                    (byte) 1
+            );
 
-        wand.setItemMeta(meta);
+            wand.setItemMeta(meta);
+        }
+
         return wand;
     }
 
-    public boolean isWand(ItemStack item) {
+    private boolean isWand(ItemStack item) {
         if (item == null || !item.hasItemMeta()) {
             return false;
         }
@@ -69,22 +75,16 @@ public final class ArenaSelection implements Listener {
     }
 
     @EventHandler
-    public void onSelection(PlayerInteractEvent event) {
-
-        if (event.getItem() == null || !isWand(event.getItem())) {
-            return;
-        }
-
-        if (event.getHand() != org.bukkit.inventory.EquipmentSlot.HAND) {
-            return;
-        }
+    public void onInteract(PlayerInteractEvent event) {
 
         if (event.getAction() != Action.LEFT_CLICK_BLOCK
                 && event.getAction() != Action.RIGHT_CLICK_BLOCK) {
             return;
         }
 
-        event.setCancelled(true);
+        if (!isWand(event.getItem())) {
+            return;
+        }
 
         Player player = event.getPlayer();
 
@@ -93,9 +93,7 @@ public final class ArenaSelection implements Listener {
             return;
         }
 
-        if (event.getClickedBlock() == null) {
-            return;
-        }
+        event.setCancelled(true);
 
         Location location = event.getClickedBlock().getLocation();
 
@@ -103,49 +101,18 @@ public final class ArenaSelection implements Listener {
             pos1.put(player.getUniqueId(), location);
 
             player.sendMessage(
-                    "§5[OblivionDuels] §aPosition 1 selected: §f"
+                    "§5[OblivionDuels] §aPosition 1 selected: "
                             + format(location)
             );
+
         } else {
             pos2.put(player.getUniqueId(), location);
 
             player.sendMessage(
-                    "§5[OblivionDuels] §aPosition 2 selected: §f"
+                    "§5[OblivionDuels] §aPosition 2 selected: "
                             + format(location)
             );
         }
-
-        if (hasSelection(player.getUniqueId())) {
-            player.sendMessage(
-                    "§dArena boundaries selected! "
-                            + "Particles will display your region."
-            );
-        }
-    }
-
-    public Location getPosition1(UUID playerId) {
-        Location location = pos1.get(playerId);
-        return location == null ? null : location.clone();
-    }
-
-    public Location getPosition2(UUID playerId) {
-        Location location = pos2.get(playerId);
-        return location == null ? null : location.clone();
-    }
-
-    public boolean hasSelection(UUID playerId) {
-        Location first = pos1.get(playerId);
-        Location second = pos2.get(playerId);
-
-        return first != null
-                && second != null
-                && first.getWorld() != null
-                && first.getWorld().equals(second.getWorld());
-    }
-
-    public void clearSelection(UUID playerId) {
-        pos1.remove(playerId);
-        pos2.remove(playerId);
     }
 
     private String format(Location location) {
@@ -154,84 +121,107 @@ public final class ArenaSelection implements Listener {
                 + location.getBlockZ();
     }
 
-    private void startParticleTask() {
+    private void startParticleDisplay() {
         new BukkitRunnable() {
             @Override
             public void run() {
                 for (Player player : Bukkit.getOnlinePlayers()) {
-                    UUID id = player.getUniqueId();
 
-                    if (!hasSelection(id)) {
-                        continue;
-                    }
+                    UUID id = player.getUniqueId();
 
                     Location first = pos1.get(id);
                     Location second = pos2.get(id);
 
-                    if (first.getWorld() == null
-                            || !first.getWorld().equals(player.getWorld())) {
+                    if (first == null || second == null) {
                         continue;
                     }
 
-                    drawBoundary(first, second);
+                    if (!first.getWorld().equals(second.getWorld())) {
+                        continue;
+                    }
+
+                    displayBoundary(player, first, second);
                 }
             }
         }.runTaskTimer(plugin, 20L, 20L);
     }
 
-    private void drawBoundary(Location first, Location second) {
-        double minX = Math.min(first.getBlockX(), second.getBlockX());
-        double maxX = Math.max(first.getBlockX(), second.getBlockX()) + 1;
-        double minY = Math.min(first.getBlockY(), second.getBlockY());
-        double maxY = Math.max(first.getBlockY(), second.getBlockY()) + 1;
-        double minZ = Math.min(first.getBlockZ(), second.getBlockZ());
-        double maxZ = Math.max(first.getBlockZ(), second.getBlockZ()) + 1;
+    private void displayBoundary(
+            Player player,
+            Location first,
+            Location second
+    ) {
+        int minX = Math.min(first.getBlockX(), second.getBlockX());
+        int maxX = Math.max(first.getBlockX(), second.getBlockX());
 
-        Location a = new Location(first.getWorld(), minX, minY, minZ);
-        Location b = new Location(first.getWorld(), maxX, minY, minZ);
-        Location c = new Location(first.getWorld(), maxX, minY, maxZ);
-        Location d = new Location(first.getWorld(), minX, minY, maxZ);
+        int minY = Math.min(first.getBlockY(), second.getBlockY());
+        int maxY = Math.max(first.getBlockY(), second.getBlockY());
 
-        Location e = new Location(first.getWorld(), minX, maxY, minZ);
-        Location f = new Location(first.getWorld(), maxX, maxY, minZ);
-        Location g = new Location(first.getWorld(), maxX, maxY, maxZ);
-        Location h = new Location(first.getWorld(), minX, maxY, maxZ);
+        int minZ = Math.min(first.getBlockZ(), second.getBlockZ());
+        int maxZ = Math.max(first.getBlockZ(), second.getBlockZ());
 
-        drawLine(a, b);
-        drawLine(b, c);
-        drawLine(c, d);
-        drawLine(d, a);
+        // Display the 12 edges of the selected cuboid.
+        for (int x = minX; x <= maxX; x++) {
+            for (int y : new int[]{minY, maxY}) {
+                for (int z : new int[]{minZ, maxZ}) {
+                    spawnParticle(player, x, y, z);
+                }
+            }
+        }
 
-        drawLine(e, f);
-        drawLine(f, g);
-        drawLine(g, h);
-        drawLine(h, e);
+        for (int z = minZ; z <= maxZ; z++) {
+            for (int y : new int[]{minY, maxY}) {
+                for (int x : new int[]{minX, maxX}) {
+                    spawnParticle(player, x, y, z);
+                }
+            }
+        }
 
-        drawLine(a, e);
-        drawLine(b, f);
-        drawLine(c, g);
-        drawLine(d, h);
+        for (int y = minY; y <= maxY; y++) {
+            for (int x : new int[]{minX, maxX}) {
+                for (int z : new int[]{minZ, maxZ}) {
+                    spawnParticle(player, x, y, z);
+                }
+            }
+        }
     }
 
-    private void drawLine(Location start, Location end) {
-        double distance = start.distance(end);
-        int points = Math.min(40, Math.max(1, (int) Math.ceil(distance)));
+    private void spawnParticle(
+            Player player,
+            int x,
+            int y,
+            int z
+    ) {
+        player.spawnParticle(
+                Particle.END_ROD,
+                x + 0.5,
+                y + 0.5,
+                z + 0.5,
+                1,
+                0,
+                0,
+                0,
+                0
+        );
+    }
 
-        for (int i = 0; i <= points; i++) {
-            double ratio = (double) i / points;
+    public Location getPos1(UUID playerId) {
+        Location location = pos1.get(playerId);
+        return location == null ? null : location.clone();
+    }
 
-            double x = start.getX()
-                    + (end.getX() - start.getX()) * ratio;
-            double y = start.getY()
-                    + (end.getY() - start.getY()) * ratio;
-            double z = start.getZ()
-                    + (end.getZ() - start.getZ()) * ratio;
+    public Location getPos2(UUID playerId) {
+        Location location = pos2.get(playerId);
+        return location == null ? null : location.clone();
+    }
 
-            start.getWorld().spawnParticle(
-                    Particle.END_ROD,
-                    x, y, z,
-                    1, 0, 0, 0, 0
-            );
-        }
+    public boolean hasSelection(UUID playerId) {
+        return pos1.containsKey(playerId)
+                && pos2.containsKey(playerId);
+    }
+
+    public void clearSelection(UUID playerId) {
+        pos1.remove(playerId);
+        pos2.remove(playerId);
     }
 }
