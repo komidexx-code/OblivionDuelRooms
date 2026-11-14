@@ -12,10 +12,14 @@ public final class OblivionDuels extends JavaPlugin
         implements CommandExecutor {
 
     private String prefix;
+
     private MatchmakingManager matchmaking;
     private MatchManager matchManager;
     private ArenaSelection arenaSelection;
     private DuelMenu duelMenu;
+
+    private StatsManager statsManager;
+    private DatabaseManager databaseManager;
 
     @Override
     public void onEnable() {
@@ -32,6 +36,14 @@ public final class OblivionDuels extends JavaPlugin
         matchmaking = new MatchmakingManager();
         matchManager = new MatchManager();
         arenaSelection = new ArenaSelection(this);
+
+        // Initialize statistics and database
+        statsManager = new StatsManager();
+        databaseManager = new DatabaseManager(this);
+
+        databaseManager.initialize();
+        databaseManager.loadStats(statsManager);
+
         duelMenu = new DuelMenu(this, matchmaking);
 
         if (getCommand("duels") != null) {
@@ -43,7 +55,22 @@ public final class OblivionDuels extends JavaPlugin
 
     @Override
     public void onDisable() {
+
+        // Save statistics before shutting down
+        if (databaseManager != null && statsManager != null) {
+            databaseManager.saveAll(statsManager);
+            databaseManager.close();
+        }
+
         getLogger().info("OblivionDuels disabled.");
+    }
+
+    public StatsManager getStatsManager() {
+        return statsManager;
+    }
+
+    public DatabaseManager getDatabaseManager() {
+        return databaseManager;
     }
 
     @Override
@@ -57,7 +84,9 @@ public final class OblivionDuels extends JavaPlugin
             if (sender instanceof Player player) {
                 duelMenu.openMenu(player);
             } else {
-                sender.sendMessage("Only players can open the duels menu.");
+                sender.sendMessage(
+                        "Only players can open the duels menu."
+                );
             }
             return true;
         }
@@ -67,8 +96,7 @@ public final class OblivionDuels extends JavaPlugin
             case "help":
                 sender.sendMessage(prefix + ChatColor.LIGHT_PURPLE
                         + "OblivionDuels Commands");
-                sender.sendMessage(ChatColor.GRAY
-                        + "/duels");
+                sender.sendMessage(ChatColor.GRAY + "/duels");
                 sender.sendMessage(ChatColor.GRAY
                         + "/duels join <1v1|2v2|3v3|4v4|5v5>");
                 sender.sendMessage(ChatColor.GRAY + "/duels leave");
@@ -80,7 +108,9 @@ public final class OblivionDuels extends JavaPlugin
 
             case "wand":
                 if (!(sender instanceof Player player)) {
-                    sender.sendMessage("Only players can use this command.");
+                    sender.sendMessage(
+                            "Only players can use this command."
+                    );
                     return true;
                 }
 
@@ -90,14 +120,19 @@ public final class OblivionDuels extends JavaPlugin
                     return true;
                 }
 
-                player.getInventory().addItem(arenaSelection.createWand());
+                player.getInventory().addItem(
+                        arenaSelection.createWand()
+                );
+
                 player.sendMessage(prefix + ChatColor.GREEN
                         + "You received the Oblivion Arena Selector!");
                 return true;
 
             case "join":
                 if (!(sender instanceof Player player)) {
-                    sender.sendMessage("Only players can join queues.");
+                    sender.sendMessage(
+                            "Only players can join queues."
+                    );
                     return true;
                 }
 
@@ -123,6 +158,7 @@ public final class OblivionDuels extends JavaPlugin
                             || teamSize < 1 || teamSize > 5) {
                         throw new IllegalArgumentException();
                     }
+
                 } catch (Exception exception) {
                     player.sendMessage(prefix + ChatColor.RED
                             + "Invalid mode. Choose 1v1, 2v2, 3v3, 4v4, or 5v5.");
@@ -151,7 +187,9 @@ public final class OblivionDuels extends JavaPlugin
 
             case "leave":
                 if (!(sender instanceof Player player)) {
-                    sender.sendMessage("Only players can leave queues.");
+                    sender.sendMessage(
+                            "Only players can leave queues."
+                    );
                     return true;
                 }
 
@@ -166,7 +204,9 @@ public final class OblivionDuels extends JavaPlugin
 
             case "queue":
                 if (!(sender instanceof Player player)) {
-                    sender.sendMessage("Only players can check their queue.");
+                    sender.sendMessage(
+                            "Only players can check their queue."
+                    );
                     return true;
                 }
 
@@ -192,6 +232,10 @@ public final class OblivionDuels extends JavaPlugin
                         + "Plugin is running.");
                 sender.sendMessage(ChatColor.GRAY
                         + "Version: " + getDescription().getVersion());
+                sender.sendMessage(ChatColor.GRAY
+                        + "Database: "
+                        + (databaseManager.isConnected()
+                        ? "Connected" : "Disconnected"));
                 return true;
 
             case "reload":
@@ -202,6 +246,7 @@ public final class OblivionDuels extends JavaPlugin
                 }
 
                 reloadConfig();
+
                 sender.sendMessage(prefix + ChatColor.GREEN
                         + "Configuration reloaded.");
                 return true;
