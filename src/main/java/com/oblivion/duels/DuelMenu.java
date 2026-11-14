@@ -78,11 +78,20 @@ public final class DuelMenu implements Listener {
                 )
         ));
 
-        setMode(inventory, 20, 1, Material.IRON_SWORD, "Solo Duel");
-        setMode(inventory, 21, 2, Material.GOLDEN_SWORD, "Doubles");
-        setMode(inventory, 22, 3, Material.DIAMOND_SWORD, "Triples");
-        setMode(inventory, 29, 4, Material.NETHERITE_SWORD, "Squads");
-        setMode(inventory, 30, 5, Material.BOW, "Full Team");
+        setMode(player, inventory, 20, 1,
+                Material.IRON_SWORD, "Solo Duel");
+
+        setMode(player, inventory, 21, 2,
+                Material.GOLDEN_SWORD, "Doubles");
+
+        setMode(player, inventory, 22, 3,
+                Material.DIAMOND_SWORD, "Triples");
+
+        setMode(player, inventory, 29, 4,
+                Material.NETHERITE_SWORD, "Squads");
+
+        setMode(player, inventory, 30, 5,
+                Material.BOW, "Full Team");
 
         inventory.setItem(47, createItem(
                 Material.GOLD_INGOT,
@@ -101,7 +110,9 @@ public final class DuelMenu implements Listener {
             inventory.setItem(49, createItem(
                     Material.GRAY_DYE,
                     "§7§lQueue Status",
-                    List.of("§7You are not currently queued.")
+                    List.of(
+                            "§7You are not currently queued."
+                    )
             ));
         } else {
             inventory.setItem(49, createItem(
@@ -125,18 +136,24 @@ public final class DuelMenu implements Listener {
     }
 
     private void setMode(
+            Player player,
             Inventory inventory,
             int slot,
             int teamSize,
             Material material,
             String description
     ) {
+        int queued = matchmaking.getQueueSize(teamSize);
+        int required = teamSize * 2;
+
         inventory.setItem(slot, createItem(
                 material,
                 "§5§l" + teamSize + "v" + teamSize,
                 List.of(
                         "§7" + description,
-                        "§7Players required: §f" + (teamSize * 2),
+                        "§7Players required: §f" + required,
+                        "§7Currently queued: §a"
+                                + queued + "§7/" + required,
                         "",
                         "§eClick to join queue!"
                 )
