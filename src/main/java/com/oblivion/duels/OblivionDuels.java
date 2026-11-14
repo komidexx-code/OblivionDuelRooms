@@ -584,4 +584,6 @@ public final class OblivionDuels extends JavaPlugin
 
             default:
                 sender.sendMessage(prefix + ChatColor.RED
-     
+                                           }
+    }
+        }
