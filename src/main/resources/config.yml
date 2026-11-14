@@ -1,0 +1,39 @@
+
+settings:
+  prefix: "&8[&5OblivionDuels&8] "
+  debug: false
+
+matchmaking:
+  enabled: true
+  modes:
+    - 1v1
+    - 2v2
+    - 3v3
+    - 4v4
+    - 5v5
+  countdown-seconds: 10
+  disconnect-grace-seconds: 30
+  match-timeout-minutes: 15
+
+combat:
+  friendly-fire: false
+  allow-pearls: true
+  allow-chorus-fruit: false
+  allow-elytra: false
+  prevent-teleport-escape: true
+
+loot:
+  enabled: true
+  drop-defeated-player-items: true
+  winner-team-can-collect: true
+  keep-inventory: false
+
+statistics:
+  enabled: true
+  leaderboard-size: 10
+
+storage:
+  type: SQLITE
+  database: duels.db
+
+arenas: {}
