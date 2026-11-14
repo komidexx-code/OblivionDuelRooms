@@ -19,12 +19,14 @@ import java.util.List;
 
 public final class DuelMenu implements Listener {
 
+    private final OblivionDuels plugin;
     private final MatchmakingManager matchmaking;
 
     public DuelMenu(
             OblivionDuels plugin,
             MatchmakingManager matchmaking
     ) {
+        this.plugin = plugin;
         this.matchmaking = matchmaking;
 
         Bukkit.getPluginManager().registerEvents(this, plugin);
@@ -33,6 +35,16 @@ public final class DuelMenu implements Listener {
     }
 
     private class MenuHolder implements InventoryHolder {
+
+        private Inventory inventory;
+
+        @Override
+        public Inventory getInventory() {
+            return inventory;
+        }
+    }
+
+    private class StatsHolder implements InventoryHolder {
 
         private Inventory inventory;
 
@@ -57,11 +69,25 @@ public final class DuelMenu implements Listener {
         player.openInventory(inventory);
     }
 
-    private void updateMenu(Player player, Inventory inventory) {
+    private void openStats(Player player) {
+        StatsHolder holder = new StatsHolder();
+
+        Inventory inventory = Bukkit.createInventory(
+                holder,
+                27,
+                ChatColor.DARK_PURPLE + "Your Statistics"
+        );
+
+        holder.inventory = inventory;
+
+        updateStats(player, inventory);
+        player.openInventory(inventory);
+    }
+
+    private void updateStats(Player player, Inventory inventory) {
 
         inventory.clear();
 
-        // Background
         ItemStack filler = createItem(
                 Material.PURPLE_STAINED_GLASS_PANE,
                 " ",
@@ -72,7 +98,75 @@ public final class DuelMenu implements Listener {
             inventory.setItem(slot, filler);
         }
 
-        // Slot 4 - Oblivion Duels
+        PlayerStats stats = plugin.getStatsManager().getStats(
+                player.getUniqueId()
+        );
+
+        inventory.setItem(4, createItem(
+                Material.NETHER_STAR,
+                "§5§lYOUR DUEL STATISTICS",
+                List.of("§7OblivionDuels player profile")
+        ));
+
+        inventory.setItem(10, createItem(
+                Material.GOLD_INGOT,
+                "§6§lWins",
+                List.of("§7Total wins: §a" + stats.getWins())
+        ));
+
+        inventory.setItem(11, createItem(
+                Material.REDSTONE,
+                "§c§lLosses",
+                List.of("§7Total losses: §c" + stats.getLosses())
+        ));
+
+        inventory.setItem(12, createItem(
+                Material.IRON_SWORD,
+                "§e§lKills",
+                List.of("§7Total kills: §e" + stats.getKills())
+        ));
+
+        inventory.setItem(13, createItem(
+                Material.SKELETON_SKULL,
+                "§f§lDeaths",
+                List.of("§7Total deaths: §f" + stats.getDeaths())
+        ));
+
+        inventory.setItem(14, createItem(
+                Material.PAPER,
+                "§b§lTotal Matches",
+                List.of("§7Matches played: §f"
+                        + stats.getTotalMatches())
+        ));
+
+        inventory.setItem(15, createItem(
+                Material.EXPERIENCE_BOTTLE,
+                "§d§lWin Rate",
+                List.of("§7Win rate: §d"
+                        + String.format("%.2f%%", stats.getWinRate()))
+        ));
+
+        inventory.setItem(22, createItem(
+                Material.ARROW,
+                "§e§lBack",
+                List.of("§7Return to the main menu.")
+        ));
+    }
+
+    private void updateMenu(Player player, Inventory inventory) {
+
+        inventory.clear();
+
+        ItemStack filler = createItem(
+                Material.PURPLE_STAINED_GLASS_PANE,
+                " ",
+                List.of()
+        );
+
+        for (int slot = 0; slot < 27; slot++) {
+            inventory.setItem(slot, filler);
+        }
+
         inventory.setItem(4, createItem(
                 Material.NETHER_STAR,
                 "§5§lOBLIVION DUELS",
@@ -82,37 +176,30 @@ public final class DuelMenu implements Listener {
                 )
         ));
 
-        // Slot 11 - 1v1
         setMode(player, inventory, 11, 1,
                 Material.IRON_SWORD, "Solo Duel");
 
-        // Slot 12 - 2v2
         setMode(player, inventory, 12, 2,
                 Material.GOLDEN_SWORD, "Doubles");
 
-        // Slot 13 - 3v3
         setMode(player, inventory, 13, 3,
                 Material.DIAMOND_SWORD, "Triples");
 
-        // Slot 14 - 4v4
         setMode(player, inventory, 14, 4,
                 Material.NETHERITE_SWORD, "Squads");
 
-        // Slot 15 - 5v5
         setMode(player, inventory, 15, 5,
                 Material.BOW, "Full Team");
 
-        // Slot 18 - Statistics
         inventory.setItem(18, createItem(
                 Material.GOLD_INGOT,
                 "§6§lStatistics",
                 List.of(
                         "§7View your duel statistics.",
-                        "§cComing soon!"
+                        "§eClick to view!"
                 )
         ));
 
-        // Slot 22 - Queue Status
         Integer queuedMode = matchmaking.getQueuedMode(
                 player.getUniqueId()
         );
@@ -140,7 +227,6 @@ public final class DuelMenu implements Listener {
             ));
         }
 
-        // Slot 26 - Back / Close
         inventory.setItem(26, createItem(
                 Material.BARRIER,
                 "§c§lClose Menu",
@@ -200,6 +286,9 @@ public final class DuelMenu implements Listener {
 
                     if (inventory.getHolder() instanceof MenuHolder) {
                         updateMenu(player, inventory);
+                    } else if (inventory.getHolder()
+                            instanceof StatsHolder) {
+                        updateStats(player, inventory);
                     }
                 }
             }
@@ -209,8 +298,10 @@ public final class DuelMenu implements Listener {
     @EventHandler
     public void onMenuClick(InventoryClickEvent event) {
 
-        if (!(event.getView().getTopInventory().getHolder()
-                instanceof MenuHolder)) {
+        Inventory top = event.getView().getTopInventory();
+
+        if (!(top.getHolder() instanceof MenuHolder)
+                && !(top.getHolder() instanceof StatsHolder)) {
             return;
         }
 
@@ -221,20 +312,29 @@ public final class DuelMenu implements Listener {
         }
 
         if (event.getClickedInventory() == null
-                || event.getClickedInventory()
-                != event.getView().getTopInventory()) {
+                || event.getClickedInventory() != top) {
             return;
         }
 
         int slot = event.getRawSlot();
 
-        // Close menu
+        if (top.getHolder() instanceof StatsHolder) {
+            if (slot == 22) {
+                openMenu(player);
+            }
+            return;
+        }
+
         if (slot == 26) {
             player.closeInventory();
             return;
         }
 
-        // Leave queue
+        if (slot == 18) {
+            openStats(player);
+            return;
+        }
+
         if (slot == 22) {
             if (matchmaking.leaveQueue(player.getUniqueId())) {
                 player.sendMessage(
@@ -246,11 +346,10 @@ public final class DuelMenu implements Listener {
                 );
             }
 
-            updateMenu(player, event.getView().getTopInventory());
+            updateMenu(player, top);
             return;
         }
 
-        // Game modes
         int teamSize = switch (slot) {
             case 11 -> 1;
             case 12 -> 2;
@@ -280,14 +379,16 @@ public final class DuelMenu implements Listener {
             );
         }
 
-        updateMenu(player, event.getView().getTopInventory());
+        updateMenu(player, top);
     }
 
     @EventHandler
     public void onMenuDrag(InventoryDragEvent event) {
 
         if (event.getView().getTopInventory().getHolder()
-                instanceof MenuHolder) {
+                instanceof MenuHolder
+                || event.getView().getTopInventory().getHolder()
+                instanceof StatsHolder) {
             event.setCancelled(true);
         }
     }
