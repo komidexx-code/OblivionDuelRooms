@@ -5,15 +5,16 @@ import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-
-import java.util.UUID;
 
 public final class OblivionDuels extends JavaPlugin
         implements CommandExecutor {
 
     private String prefix;
     private MatchmakingManager matchmaking;
+    private MatchManager matchManager;
+    private ArenaSelection arenaSelection;
 
     @Override
     public void onEnable() {
@@ -28,6 +29,8 @@ public final class OblivionDuels extends JavaPlugin
         );
 
         matchmaking = new MatchmakingManager();
+        matchManager = new MatchManager();
+        arenaSelection = new ArenaSelection(this);
 
         if (getCommand("duels") != null) {
             getCommand("duels").setExecutor(this);
@@ -55,6 +58,7 @@ public final class OblivionDuels extends JavaPlugin
                     + "/duels join <1v1|2v2|3v3|4v4|5v5>");
             sender.sendMessage(ChatColor.GRAY + "/duels leave");
             sender.sendMessage(ChatColor.GRAY + "/duels queue");
+            sender.sendMessage(ChatColor.GRAY + "/duels wand");
             sender.sendMessage(ChatColor.GRAY + "/duels status");
             sender.sendMessage(ChatColor.GRAY + "/duels reload");
             return true;
@@ -62,14 +66,38 @@ public final class OblivionDuels extends JavaPlugin
 
         switch (args[0].toLowerCase()) {
 
+            case "wand":
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage("Only players can use this command.");
+                    return true;
+                }
+
+                if (!player.hasPermission("oblivionduels.admin")) {
+                    player.sendMessage(prefix + ChatColor.RED
+                            + "You don't have permission.");
+                    return true;
+                }
+
+                player.getInventory().addItem(
+                        arenaSelection.createWand()
+                );
+
+                player.sendMessage(prefix + ChatColor.GREEN
+                        + "You received the Oblivion Arena Selector!");
+                player.sendMessage(ChatColor.GRAY
+                        + "Left-click: Position 1");
+                player.sendMessage(ChatColor.GRAY
+                        + "Right-click: Position 2");
+                return true;
+
             case "join":
-                if (!(sender instanceof org.bukkit.entity.Player player)) {
+                if (!(sender instanceof Player player)) {
                     sender.sendMessage("Only players can join queues.");
                     return true;
                 }
 
                 if (args.length < 2) {
-                    sender.sendMessage(prefix + ChatColor.RED
+                    player.sendMessage(prefix + ChatColor.RED
                             + "Usage: /duels join <1v1|2v2|3v3|4v4|5v5>");
                     return true;
                 }
@@ -77,21 +105,20 @@ public final class OblivionDuels extends JavaPlugin
                 int teamSize;
 
                 try {
-                    teamSize = Integer.parseInt(
-                            args[1].split("v")[0]
-                    );
+                    String[] parts = args[1].split("v");
+                    if (parts.length != 2) {
+                        throw new IllegalArgumentException();
+                    }
 
-                    int opponentSize = Integer.parseInt(
-                            args[1].split("v")[1]
-                    );
+                    teamSize = Integer.parseInt(parts[0]);
+                    int opponentSize = Integer.parseInt(parts[1]);
 
                     if (teamSize != opponentSize
                             || teamSize < 1 || teamSize > 5) {
                         throw new IllegalArgumentException();
                     }
-
                 } catch (Exception exception) {
-                    sender.sendMessage(prefix + ChatColor.RED
+                    player.sendMessage(prefix + ChatColor.RED
                             + "Invalid mode. Choose 1v1, 2v2, 3v3, 4v4, or 5v5.");
                     return true;
                 }
@@ -101,41 +128,38 @@ public final class OblivionDuels extends JavaPlugin
                 );
 
                 if (!joined) {
-                    sender.sendMessage(prefix + ChatColor.RED
+                    player.sendMessage(prefix + ChatColor.RED
                             + "You are already in a queue.");
                     return true;
                 }
 
-                int queued = matchmaking.getQueueSize(teamSize);
-
-                sender.sendMessage(prefix + ChatColor.GREEN
+                player.sendMessage(prefix + ChatColor.GREEN
                         + "You joined the " + teamSize + "v"
                         + teamSize + " queue!");
 
-                sender.sendMessage(ChatColor.GRAY
-                        + "Players queued: " + queued
+                player.sendMessage(ChatColor.GRAY
+                        + "Players queued: "
+                        + matchmaking.getQueueSize(teamSize)
                         + "/" + (teamSize * 2));
-
                 return true;
 
             case "leave":
-                if (!(sender instanceof org.bukkit.entity.Player player)) {
+                if (!(sender instanceof Player player)) {
                     sender.sendMessage("Only players can leave queues.");
                     return true;
                 }
 
                 if (matchmaking.leaveQueue(player.getUniqueId())) {
-                    sender.sendMessage(prefix + ChatColor.GREEN
+                    player.sendMessage(prefix + ChatColor.GREEN
                             + "You left the queue.");
                 } else {
-                    sender.sendMessage(prefix + ChatColor.RED
+                    player.sendMessage(prefix + ChatColor.RED
                             + "You are not in a queue.");
                 }
-
                 return true;
 
             case "queue":
-                if (!(sender instanceof org.bukkit.entity.Player player)) {
+                if (!(sender instanceof Player player)) {
                     sender.sendMessage("Only players can check their queue.");
                     return true;
                 }
@@ -145,17 +169,16 @@ public final class OblivionDuels extends JavaPlugin
                 );
 
                 if (mode == null) {
-                    sender.sendMessage(prefix + ChatColor.YELLOW
+                    player.sendMessage(prefix + ChatColor.YELLOW
                             + "You are not in a queue.");
                 } else {
-                    sender.sendMessage(prefix + ChatColor.GREEN
+                    player.sendMessage(prefix + ChatColor.GREEN
                             + "Your queue: " + mode + "v" + mode);
-                    sender.sendMessage(ChatColor.GRAY
+                    player.sendMessage(ChatColor.GRAY
                             + "Players queued: "
                             + matchmaking.getQueueSize(mode)
                             + "/" + (mode * 2));
                 }
-
                 return true;
 
             case "status":
