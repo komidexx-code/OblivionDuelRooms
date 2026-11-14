@@ -16,6 +16,7 @@ public final class OblivionDuels extends JavaPlugin
     private MatchmakingManager matchmaking;
     private MatchManager matchManager;
     private ArenaSelection arenaSelection;
+    private ArenaManager arenaManager;
     private DuelMenu duelMenu;
 
     private StatsManager statsManager;
@@ -35,9 +36,10 @@ public final class OblivionDuels extends JavaPlugin
 
         matchmaking = new MatchmakingManager();
         matchManager = new MatchManager();
-        arenaSelection = new ArenaSelection(this);
 
-        // Initialize statistics and database
+        arenaSelection = new ArenaSelection(this);
+        arenaManager = new ArenaManager(this);
+
         statsManager = new StatsManager();
         databaseManager = new DatabaseManager(this);
 
@@ -56,7 +58,6 @@ public final class OblivionDuels extends JavaPlugin
     @Override
     public void onDisable() {
 
-        // Save statistics before shutting down
         if (databaseManager != null && statsManager != null) {
             databaseManager.saveAll(statsManager);
             databaseManager.close();
@@ -71,6 +72,22 @@ public final class OblivionDuels extends JavaPlugin
 
     public DatabaseManager getDatabaseManager() {
         return databaseManager;
+    }
+
+    public ArenaManager getArenaManager() {
+        return arenaManager;
+    }
+
+    public ArenaSelection getArenaSelection() {
+        return arenaSelection;
+    }
+
+    public MatchManager getMatchManager() {
+        return matchManager;
+    }
+
+    public MatchmakingManager getMatchmaking() {
+        return matchmaking;
     }
 
     @Override
@@ -236,6 +253,9 @@ public final class OblivionDuels extends JavaPlugin
                         + "Database: "
                         + (databaseManager.isConnected()
                         ? "Connected" : "Disconnected"));
+                sender.sendMessage(ChatColor.GRAY
+                        + "Arenas loaded: "
+                        + arenaManager.getArenaCount());
                 return true;
 
             case "reload":
@@ -246,9 +266,10 @@ public final class OblivionDuels extends JavaPlugin
                 }
 
                 reloadConfig();
+                arenaManager.loadArenas();
 
                 sender.sendMessage(prefix + ChatColor.GREEN
-                        + "Configuration reloaded.");
+                        + "Configuration and arenas reloaded.");
                 return true;
 
             default:
