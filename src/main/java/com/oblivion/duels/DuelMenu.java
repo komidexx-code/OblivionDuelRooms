@@ -19,19 +19,17 @@ import java.util.List;
 
 public final class DuelMenu implements Listener {
 
-    private final OblivionDuels plugin;
     private final MatchmakingManager matchmaking;
 
     public DuelMenu(
             OblivionDuels plugin,
             MatchmakingManager matchmaking
     ) {
-        this.plugin = plugin;
         this.matchmaking = matchmaking;
 
         Bukkit.getPluginManager().registerEvents(this, plugin);
 
-        startAutoRefresh();
+        startAutoRefresh(plugin);
     }
 
     private class MenuHolder implements InventoryHolder {
@@ -49,7 +47,7 @@ public final class DuelMenu implements Listener {
 
         Inventory inventory = Bukkit.createInventory(
                 holder,
-                54,
+                27,
                 ChatColor.DARK_PURPLE + "OblivionDuels"
         );
 
@@ -63,41 +61,49 @@ public final class DuelMenu implements Listener {
 
         inventory.clear();
 
+        // Background
         ItemStack filler = createItem(
                 Material.PURPLE_STAINED_GLASS_PANE,
                 " ",
                 List.of()
         );
 
-        for (int slot = 0; slot < 54; slot++) {
+        for (int slot = 0; slot < 27; slot++) {
             inventory.setItem(slot, filler);
         }
 
+        // Slot 4 - Oblivion Duels
         inventory.setItem(4, createItem(
                 Material.NETHER_STAR,
                 "§5§lOBLIVION DUELS",
                 List.of(
-                        "§7Choose your preferred game mode.",
-                        "§8Solo matchmaking system"
+                        "§7Welcome to OblivionDuels!",
+                        "§8Choose your preferred game mode."
                 )
         ));
 
-        setMode(player, inventory, 20, 1,
+        // Slot 11 - 1v1
+        setMode(player, inventory, 11, 1,
                 Material.IRON_SWORD, "Solo Duel");
 
-        setMode(player, inventory, 21, 2,
+        // Slot 12 - 2v2
+        setMode(player, inventory, 12, 2,
                 Material.GOLDEN_SWORD, "Doubles");
 
-        setMode(player, inventory, 22, 3,
+        // Slot 13 - 3v3
+        setMode(player, inventory, 13, 3,
                 Material.DIAMOND_SWORD, "Triples");
 
-        setMode(player, inventory, 29, 4,
+        // Slot 14 - 4v4
+        setMode(player, inventory, 14, 4,
                 Material.NETHERITE_SWORD, "Squads");
 
-        setMode(player, inventory, 30, 5,
+        // Slot 15 - 5v5
+        setMode(player, inventory, 15, 5,
                 Material.BOW, "Full Team");
 
-        inventory.setItem(47, createItem(
+        // Slot 18 - Statistics
+        inventory.setItem(18, createItem(
                 Material.GOLD_INGOT,
                 "§6§lStatistics",
                 List.of(
@@ -106,12 +112,13 @@ public final class DuelMenu implements Listener {
                 )
         ));
 
+        // Slot 22 - Queue Status
         Integer queuedMode = matchmaking.getQueuedMode(
                 player.getUniqueId()
         );
 
         if (queuedMode == null) {
-            inventory.setItem(49, createItem(
+            inventory.setItem(22, createItem(
                     Material.GRAY_DYE,
                     "§7§lQueue Status",
                     List.of(
@@ -119,7 +126,7 @@ public final class DuelMenu implements Listener {
                     )
             ));
         } else {
-            inventory.setItem(49, createItem(
+            inventory.setItem(22, createItem(
                     Material.LIME_DYE,
                     "§a§lQueue Status",
                     List.of(
@@ -127,15 +134,17 @@ public final class DuelMenu implements Listener {
                             "§7Players: §f"
                                     + matchmaking.getQueueSize(queuedMode)
                                     + "/" + (queuedMode * 2),
+                            "",
                             "§eClick to leave your queue."
                     )
             ));
         }
 
-        inventory.setItem(53, createItem(
+        // Slot 26 - Back / Close
+        inventory.setItem(26, createItem(
                 Material.BARRIER,
-                "§cClose Menu",
-                List.of("§7Click to close.")
+                "§c§lClose Menu",
+                List.of("§7Click to close the menu.")
         ));
     }
 
@@ -181,12 +190,11 @@ public final class DuelMenu implements Listener {
         return item;
     }
 
-    private void startAutoRefresh() {
+    private void startAutoRefresh(OblivionDuels plugin) {
         new BukkitRunnable() {
             @Override
             public void run() {
                 for (Player player : Bukkit.getOnlinePlayers()) {
-
                     Inventory inventory =
                             player.getOpenInventory().getTopInventory();
 
@@ -202,7 +210,7 @@ public final class DuelMenu implements Listener {
     public void onMenuClick(InventoryClickEvent event) {
 
         if (!(event.getView().getTopInventory().getHolder()
-                instanceof DuelMenu.MenuHolder)) {
+                instanceof MenuHolder)) {
             return;
         }
 
@@ -220,12 +228,14 @@ public final class DuelMenu implements Listener {
 
         int slot = event.getRawSlot();
 
-        if (slot == 53) {
+        // Close menu
+        if (slot == 26) {
             player.closeInventory();
             return;
         }
 
-        if (slot == 49) {
+        // Leave queue
+        if (slot == 22) {
             if (matchmaking.leaveQueue(player.getUniqueId())) {
                 player.sendMessage(
                         "§5[OblivionDuels] §aYou left the queue."
@@ -240,12 +250,13 @@ public final class DuelMenu implements Listener {
             return;
         }
 
+        // Game modes
         int teamSize = switch (slot) {
-            case 20 -> 1;
-            case 21 -> 2;
-            case 22 -> 3;
-            case 29 -> 4;
-            case 30 -> 5;
+            case 11 -> 1;
+            case 12 -> 2;
+            case 13 -> 3;
+            case 14 -> 4;
+            case 15 -> 5;
             default -> 0;
         };
 
@@ -276,7 +287,7 @@ public final class DuelMenu implements Listener {
     public void onMenuDrag(InventoryDragEvent event) {
 
         if (event.getView().getTopInventory().getHolder()
-                instanceof DuelMenu.MenuHolder) {
+                instanceof MenuHolder) {
             event.setCancelled(true);
         }
     }
