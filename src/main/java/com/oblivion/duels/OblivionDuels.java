@@ -23,6 +23,7 @@ public final class OblivionDuels extends JavaPlugin
     private MatchManager matchManager;
     private MatchmakingCoordinator matchmakingCoordinator;
     private MatchProtectionListener matchProtectionListener;
+    private MatchDeathListener matchDeathListener;
 
     private ArenaSelection arenaSelection;
     private ArenaManager arenaManager;
@@ -59,6 +60,13 @@ public final class OblivionDuels extends JavaPlugin
 
         arenaSelection = new ArenaSelection(this);
         arenaManager = new ArenaManager(this);
+
+        // Register match death handling.
+        matchDeathListener = new MatchDeathListener(
+                this,
+                matchManager,
+                arenaManager
+        );
 
         statsManager = new StatsManager();
         databaseManager = new DatabaseManager(this);
