@@ -11,10 +11,34 @@ public final class MatchManager {
     private final Map<UUID, UUID> playerMatches =
             new HashMap<>();
 
-    public DuelMatch createMatch(int teamSize, List<UUID> players) {
+    // Stores the arena assigned to each match.
+    private final Map<UUID, String> matchArenas =
+            new HashMap<>();
+
+    public DuelMatch createMatch(
+            int teamSize,
+            List<UUID> players
+    ) {
+        return createMatch(teamSize, players, null);
+    }
+
+    public DuelMatch createMatch(
+            int teamSize,
+            List<UUID> players,
+            String arenaName
+    ) {
         if (teamSize < 1 || teamSize > 5
+                || players == null
                 || players.size() != teamSize * 2) {
-            throw new IllegalArgumentException("Invalid match setup.");
+            throw new IllegalArgumentException(
+                    "Invalid match setup."
+            );
+        }
+
+        if (new HashSet<>(players).size() != players.size()) {
+            throw new IllegalArgumentException(
+                    "A player cannot appear twice in a match."
+            );
         }
 
         for (UUID player : players) {
@@ -33,12 +57,22 @@ public final class MatchManager {
                 players.subList(teamSize, teamSize * 2)
         );
 
-        DuelMatch match = new DuelMatch(teamSize, teamA, teamB);
+        DuelMatch match = new DuelMatch(
+                teamSize,
+                teamA,
+                teamB
+        );
 
-        activeMatches.put(match.getMatchId(), match);
+        UUID matchId = match.getMatchId();
+
+        activeMatches.put(matchId, match);
+
+        if (arenaName != null && !arenaName.isBlank()) {
+            matchArenas.put(matchId, arenaName);
+        }
 
         for (UUID player : players) {
-            playerMatches.put(player, match.getMatchId());
+            playerMatches.put(player, matchId);
         }
 
         return match;
@@ -58,6 +92,10 @@ public final class MatchManager {
         return activeMatches.get(matchId);
     }
 
+    public String getArenaForMatch(UUID matchId) {
+        return matchArenas.get(matchId);
+    }
+
     public void endMatch(UUID matchId) {
         DuelMatch match = activeMatches.remove(matchId);
 
@@ -72,6 +110,8 @@ public final class MatchManager {
         for (UUID player : match.getTeamB()) {
             playerMatches.remove(player);
         }
+
+        matchArenas.remove(matchId);
     }
 
     public boolean isInMatch(UUID playerId) {
@@ -80,5 +120,9 @@ public final class MatchManager {
 
     public int getActiveMatchCount() {
         return activeMatches.size();
+    }
+
+    public int getActivePlayerCount() {
+        return playerMatches.size();
     }
 }
