@@ -15,6 +15,7 @@ public final class OblivionDuels extends JavaPlugin
     private MatchmakingManager matchmaking;
     private MatchManager matchManager;
     private ArenaSelection arenaSelection;
+    private DuelMenu duelMenu;
 
     @Override
     public void onEnable() {
@@ -31,6 +32,7 @@ public final class OblivionDuels extends JavaPlugin
         matchmaking = new MatchmakingManager();
         matchManager = new MatchManager();
         arenaSelection = new ArenaSelection(this);
+        duelMenu = new DuelMenu(this, matchmaking);
 
         if (getCommand("duels") != null) {
             getCommand("duels").setExecutor(this);
@@ -51,20 +53,30 @@ public final class OblivionDuels extends JavaPlugin
             String label,
             String[] args
     ) {
-        if (args.length == 0 || args[0].equalsIgnoreCase("help")) {
-            sender.sendMessage(prefix + ChatColor.LIGHT_PURPLE
-                    + "OblivionDuels Commands");
-            sender.sendMessage(ChatColor.GRAY
-                    + "/duels join <1v1|2v2|3v3|4v4|5v5>");
-            sender.sendMessage(ChatColor.GRAY + "/duels leave");
-            sender.sendMessage(ChatColor.GRAY + "/duels queue");
-            sender.sendMessage(ChatColor.GRAY + "/duels wand");
-            sender.sendMessage(ChatColor.GRAY + "/duels status");
-            sender.sendMessage(ChatColor.GRAY + "/duels reload");
+        if (args.length == 0) {
+            if (sender instanceof Player player) {
+                duelMenu.openMenu(player);
+            } else {
+                sender.sendMessage("Only players can open the duels menu.");
+            }
             return true;
         }
 
         switch (args[0].toLowerCase()) {
+
+            case "help":
+                sender.sendMessage(prefix + ChatColor.LIGHT_PURPLE
+                        + "OblivionDuels Commands");
+                sender.sendMessage(ChatColor.GRAY
+                        + "/duels");
+                sender.sendMessage(ChatColor.GRAY
+                        + "/duels join <1v1|2v2|3v3|4v4|5v5>");
+                sender.sendMessage(ChatColor.GRAY + "/duels leave");
+                sender.sendMessage(ChatColor.GRAY + "/duels queue");
+                sender.sendMessage(ChatColor.GRAY + "/duels wand");
+                sender.sendMessage(ChatColor.GRAY + "/duels status");
+                sender.sendMessage(ChatColor.GRAY + "/duels reload");
+                return true;
 
             case "wand":
                 if (!(sender instanceof Player player)) {
@@ -78,16 +90,9 @@ public final class OblivionDuels extends JavaPlugin
                     return true;
                 }
 
-                player.getInventory().addItem(
-                        arenaSelection.createWand()
-                );
-
+                player.getInventory().addItem(arenaSelection.createWand());
                 player.sendMessage(prefix + ChatColor.GREEN
                         + "You received the Oblivion Arena Selector!");
-                player.sendMessage(ChatColor.GRAY
-                        + "Left-click: Position 1");
-                player.sendMessage(ChatColor.GRAY
-                        + "Right-click: Position 2");
                 return true;
 
             case "join":
@@ -106,6 +111,7 @@ public final class OblivionDuels extends JavaPlugin
 
                 try {
                     String[] parts = args[1].split("v");
+
                     if (parts.length != 2) {
                         throw new IllegalArgumentException();
                     }
