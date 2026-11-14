@@ -19,6 +19,18 @@ public final class DuelArena {
     private Location spectatorSpawn;
 
     public DuelArena(String name, World world) {
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Arena name cannot be empty."
+            );
+        }
+
+        if (world == null) {
+            throw new IllegalArgumentException(
+                    "Arena world cannot be null."
+            );
+        }
+
         this.name = name;
         this.worldId = world.getUID();
     }
@@ -32,47 +44,52 @@ public final class DuelArena {
     }
 
     public Location getCorner1() {
-        return corner1;
+        return cloneLocation(corner1);
     }
 
     public Location getCorner2() {
-        return corner2;
+        return cloneLocation(corner2);
     }
 
     public Location getTeamASpawn() {
-        return teamASpawn;
+        return cloneLocation(teamASpawn);
     }
 
     public Location getTeamBSpawn() {
-        return teamBSpawn;
+        return cloneLocation(teamBSpawn);
     }
 
     public Location getSpectatorSpawn() {
-        return spectatorSpawn;
+        return cloneLocation(spectatorSpawn);
     }
 
     public void setCorner1(Location location) {
-        this.corner1 = location.clone();
+        this.corner1 = cloneLocation(location);
     }
 
     public void setCorner2(Location location) {
-        this.corner2 = location.clone();
+        this.corner2 = cloneLocation(location);
     }
 
     public void setTeamASpawn(Location location) {
-        this.teamASpawn = location.clone();
+        this.teamASpawn = cloneLocation(location);
     }
 
     public void setTeamBSpawn(Location location) {
-        this.teamBSpawn = location.clone();
+        this.teamBSpawn = cloneLocation(location);
     }
 
     public void setSpectatorSpawn(Location location) {
-        this.spectatorSpawn = location.clone();
+        this.spectatorSpawn = cloneLocation(location);
+    }
+
+    private Location cloneLocation(Location location) {
+        return location == null ? null : location.clone();
     }
 
     public boolean contains(Location location) {
-        if (location.getWorld() == null
+        if (location == null
+                || location.getWorld() == null
                 || !location.getWorld().getUID().equals(worldId)
                 || corner1 == null
                 || corner2 == null) {
@@ -81,8 +98,10 @@ public final class DuelArena {
 
         double minX = Math.min(corner1.getX(), corner2.getX());
         double maxX = Math.max(corner1.getX(), corner2.getX());
+
         double minY = Math.min(corner1.getY(), corner2.getY());
         double maxY = Math.max(corner1.getY(), corner2.getY());
+
         double minZ = Math.min(corner1.getZ(), corner2.getZ());
         double maxZ = Math.max(corner1.getZ(), corner2.getZ());
 
@@ -99,6 +118,17 @@ public final class DuelArena {
                 && corner2 != null
                 && teamASpawn != null
                 && teamBSpawn != null
-                && spectatorSpawn != null;
+                && spectatorSpawn != null
+                && sameWorld(corner1)
+                && sameWorld(corner2)
+                && sameWorld(teamASpawn)
+                && sameWorld(teamBSpawn)
+                && sameWorld(spectatorSpawn);
+    }
+
+    private boolean sameWorld(Location location) {
+        return location != null
+                && location.getWorld() != null
+                && location.getWorld().getUID().equals(worldId);
     }
 }
