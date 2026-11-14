@@ -1,6 +1,7 @@
 
 package com.oblivion.duels;
 
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.command.Command;
@@ -21,6 +22,7 @@ public final class OblivionDuels extends JavaPlugin
     private MatchmakingManager matchmaking;
     private MatchManager matchManager;
     private MatchmakingCoordinator matchmakingCoordinator;
+    private MatchProtectionListener matchProtectionListener;
 
     private ArenaSelection arenaSelection;
     private ArenaManager arenaManager;
@@ -46,6 +48,14 @@ public final class OblivionDuels extends JavaPlugin
 
         matchmaking = new MatchmakingManager();
         matchManager = new MatchManager();
+
+        matchProtectionListener =
+                new MatchProtectionListener(matchManager);
+
+        Bukkit.getPluginManager().registerEvents(
+                matchProtectionListener,
+                this
+        );
 
         arenaSelection = new ArenaSelection(this);
         arenaManager = new ArenaManager(this);
