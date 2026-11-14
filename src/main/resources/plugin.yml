@@ -1,0 +1,17 @@
+
+name: OblivionDuels
+version: 1.0.0
+main: com.oblivion.duels.OblivionDuels
+api-version: '1.21'
+author: MikhaDev
+
+commands:
+  duels:
+    description: OblivionDuels commands
+    usage: /duels help
+    aliases: [duel]
+
+permissions:
+  oblivionduels.admin:
+    default: op
+    
