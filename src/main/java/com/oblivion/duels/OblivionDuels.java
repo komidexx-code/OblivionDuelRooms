@@ -297,7 +297,8 @@ public final class OblivionDuels extends JavaPlugin
                     Location pos2 =
                             arenaSelection.getPos2(playerId);
 
-                    arena.setCorners(pos1, pos2);
+                    arena.setCorner1(pos1);
+                    arena.setCorner2(pos2);
 
                     player.sendMessage(prefix + ChatColor.GREEN
                             + "Arena region selected.");
