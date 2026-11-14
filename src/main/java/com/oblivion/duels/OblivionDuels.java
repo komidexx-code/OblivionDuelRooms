@@ -47,6 +47,13 @@ public final class OblivionDuels extends JavaPlugin
                 )
         );
 
+        // Initialize statistics and database first.
+        statsManager = new StatsManager();
+        databaseManager = new DatabaseManager(this);
+
+        databaseManager.initialize();
+        databaseManager.loadStats(statsManager);
+
         matchmaking = new MatchmakingManager();
         matchManager = new MatchManager();
 
@@ -61,18 +68,14 @@ public final class OblivionDuels extends JavaPlugin
         arenaSelection = new ArenaSelection(this);
         arenaManager = new ArenaManager(this);
 
-        // Register match death handling.
+        // Register death handling after statistics are ready.
         matchDeathListener = new MatchDeathListener(
                 this,
                 matchManager,
-                arenaManager
+                arenaManager,
+                statsManager,
+                databaseManager
         );
-
-        statsManager = new StatsManager();
-        databaseManager = new DatabaseManager(this);
-
-        databaseManager.initialize();
-        databaseManager.loadStats(statsManager);
 
         duelMenu = new DuelMenu(this, matchmaking);
 
@@ -581,8 +584,4 @@ public final class OblivionDuels extends JavaPlugin
 
             default:
                 sender.sendMessage(prefix + ChatColor.RED
-                        + "Unknown command. Use /duels help.");
-                return true;
-        }
-    }
-        }
+     
