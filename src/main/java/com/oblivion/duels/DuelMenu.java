@@ -8,10 +8,12 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.List;
 
@@ -28,6 +30,8 @@ public final class DuelMenu implements Listener {
         this.matchmaking = matchmaking;
 
         Bukkit.getPluginManager().registerEvents(this, plugin);
+
+        startAutoRefresh();
     }
 
     private class MenuHolder implements InventoryHolder {
@@ -177,6 +181,23 @@ public final class DuelMenu implements Listener {
         return item;
     }
 
+    private void startAutoRefresh() {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                for (Player player : Bukkit.getOnlinePlayers()) {
+
+                    Inventory inventory =
+                            player.getOpenInventory().getTopInventory();
+
+                    if (inventory.getHolder() instanceof MenuHolder) {
+                        updateMenu(player, inventory);
+                    }
+                }
+            }
+        }.runTaskTimer(plugin, 20L, 20L);
+    }
+
     @EventHandler
     public void onMenuClick(InventoryClickEvent event) {
 
@@ -249,5 +270,14 @@ public final class DuelMenu implements Listener {
         }
 
         updateMenu(player, event.getView().getTopInventory());
+    }
+
+    @EventHandler
+    public void onMenuDrag(InventoryDragEvent event) {
+
+        if (event.getView().getTopInventory().getHolder()
+                instanceof DuelMenu.MenuHolder) {
+            event.setCancelled(true);
+        }
     }
 }
