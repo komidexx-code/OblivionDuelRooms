@@ -29,16 +29,16 @@ public final class MatchDeathListener implements Listener {
     private final Map<UUID, Location> spectatorSpawns =
             new HashMap<>();
 
-    // Match ID -> defeated player ID -> saved inventory items
     private final Map<UUID, Map<UUID, List<ItemStack>>> matchLoot =
             new HashMap<>();
 
-    // Player ID -> items waiting to be collected
     private final Map<UUID, List<ItemStack>> pendingLoot =
             new HashMap<>();
 
-    // Player ID -> disconnect grace-period task
     private final Map<UUID, BukkitTask> disconnectTasks =
+            new HashMap<>();
+
+    private final Map<UUID, BukkitTask> timeoutTasks =
             new HashMap<>();
 
     public MatchDeathListener(
@@ -57,6 +57,88 @@ public final class MatchDeathListener implements Listener {
         Bukkit.getPluginManager().registerEvents(this, plugin);
     }
 
+    public void startMatchTimeout(DuelMatch match) {
+
+        if (match == null) {
+            return;
+        }
+
+        UUID matchId = match.getMatchId();
+
+        BukkitTask previous = timeoutTasks.remove(matchId);
+
+        if (previous != null) {
+            previous.cancel();
+        }
+
+        int minutes = Math.max(
+                1,
+                plugin.getConfig().getInt(
+                        "matchmaking.match-timeout-minutes",
+                        15
+                )
+        );
+
+        BukkitTask task = Bukkit.getScheduler().runTaskLater(
+                plugin,
+                () -> {
+                    timeoutTasks.remove(matchId);
+
+                    if (match.getState()
+                            != DuelMatch.MatchState.ACTIVE) {
+                        return;
+                    }
+
+                    int teamAAlive = match.getAliveCount(
+                            DuelMatch.WinningTeam.TEAM_A
+                    );
+
+                    int teamBAlive = match.getAliveCount(
+                            DuelMatch.WinningTeam.TEAM_B
+                    );
+
+                    DuelMatch.WinningTeam winner;
+
+                    if (teamAAlive > teamBAlive) {
+                        winner = DuelMatch.WinningTeam.TEAM_A;
+                    } else if (teamBAlive > teamAAlive) {
+                        winner = DuelMatch.WinningTeam.TEAM_B;
+                    } else {
+                        winner = DuelMatch.WinningTeam.DRAW;
+                    }
+
+                    String arenaName =
+                            matchManager.getArenaForMatch(matchId);
+
+                    if (winner == DuelMatch.WinningTeam.DRAW) {
+                        finishMatch(
+                                match,
+                                arenaName,
+                                ChatColor.YELLOW
+                                        + "Match timed out! It ended in a draw.",
+                                winner
+                        );
+                    } else {
+                        String winningTeam =
+                                winner == DuelMatch.WinningTeam.TEAM_A
+                                        ? "Team A" : "Team B";
+
+                        finishMatch(
+                                match,
+                                arenaName,
+                                ChatColor.GREEN
+                                        + "Match timed out! "
+                                        + winningTeam + " wins!",
+                                winner
+                        );
+                    }
+                },
+                minutes * 60L * 20L
+        );
+
+        timeoutTasks.put(matchId, task);
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerDeath(PlayerDeathEvent event) {
 
@@ -73,6 +155,7 @@ public final class MatchDeathListener implements Listener {
 
         UUID playerId = player.getUniqueId();
 
+        cancelDisconnectTask(playerId);
         saveInventory(match, player);
 
         event.setKeepInventory(false);
@@ -135,6 +218,8 @@ public final class MatchDeathListener implements Listener {
         }
 
         UUID playerId = player.getUniqueId();
+
+        cancelDisconnectTask(playerId);
 
         int graceSeconds = Math.max(
                 1,
@@ -259,6 +344,12 @@ public final class MatchDeathListener implements Listener {
             DuelMatch.WinningTeam winner
     ) {
         cancelDisconnectTasks(match);
+
+        BukkitTask timeout = timeoutTasks.remove(match.getMatchId());
+
+        if (timeout != null) {
+            timeout.cancel();
+        }
 
         distributeLoot(match, winner);
         recordResults(match, winner);
@@ -404,7 +495,6 @@ public final class MatchDeathListener implements Listener {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
 
-        // Check whether this player reconnected during the grace period.
         BukkitTask task = disconnectTasks.remove(playerId);
 
         if (task != null) {
@@ -423,7 +513,6 @@ public final class MatchDeathListener implements Listener {
             }
         }
 
-        // Deliver any loot waiting for this player.
         List<ItemStack> items = pendingLoot.remove(playerId);
 
         if (items == null || items.isEmpty()) {
@@ -523,5 +612,20 @@ public final class MatchDeathListener implements Listener {
                 );
             }
         }
+    }
+
+    public void shutdown() {
+
+        for (BukkitTask task : disconnectTasks.values()) {
+            task.cancel();
+        }
+
+        disconnectTasks.clear();
+
+        for (BukkitTask task : timeoutTasks.values()) {
+            task.cancel();
+        }
+
+        timeoutTasks.clear();
     }
 }
