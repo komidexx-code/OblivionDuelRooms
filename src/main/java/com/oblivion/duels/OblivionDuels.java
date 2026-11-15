@@ -1,9 +1,11 @@
 
 package com.oblivion.duels;
 
+import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -11,6 +13,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -31,6 +34,8 @@ public final class OblivionDuels extends JavaPlugin
 
     private StatsManager statsManager;
     private DatabaseManager databaseManager;
+
+    private DuelPlaceholderExpansion placeholderExpansion;
 
     private final Map<UUID, DuelArena> pendingArenas =
             new HashMap<>();
@@ -86,6 +91,25 @@ public final class OblivionDuels extends JavaPlugin
 
         matchmakingCoordinator.start();
 
+        if (Bukkit.getPluginManager().isPluginEnabled(
+                "PlaceholderAPI")) {
+
+            placeholderExpansion =
+                    new DuelPlaceholderExpansion();
+
+            placeholderExpansion.register();
+
+            getLogger().info(
+                    "PlaceholderAPI expansion registered."
+            );
+
+        } else {
+            getLogger().info(
+                    "PlaceholderAPI not found. "
+                    + "Placeholder support disabled."
+            );
+        }
+
         if (getCommand("duels") != null) {
             getCommand("duels").setExecutor(this);
         }
@@ -95,6 +119,10 @@ public final class OblivionDuels extends JavaPlugin
 
     @Override
     public void onDisable() {
+        if (placeholderExpansion != null) {
+            placeholderExpansion.unregister();
+        }
+
         if (matchmakingCoordinator != null) {
             matchmakingCoordinator.stop();
         }
@@ -584,4 +612,81 @@ public final class OblivionDuels extends JavaPlugin
             }
         }
     }
-                                           }
+
+    private final class DuelPlaceholderExpansion
+            extends PlaceholderExpansion {
+
+        @Override
+        public String getIdentifier() {
+            return "oblivionduels";
+        }
+
+        @Override
+        public String getAuthor() {
+            return "Komomii";
+        }
+
+        @Override
+        public String getVersion() {
+            return getPluginMeta().getVersion();
+        }
+
+        @Override
+        public boolean persist() {
+            return true;
+        }
+
+        @Override
+        public String onRequest(
+                OfflinePlayer player,
+                String params
+        ) {
+            if (player == null || statsManager == null) {
+                return "0";
+            }
+
+            PlayerStats stats =
+                    statsManager.getStats(player.getUniqueId());
+
+            switch (params.toLowerCase(Locale.ROOT)) {
+
+                case "wins":
+                    return String.valueOf(stats.getWins());
+
+                case "losses":
+                    return String.valueOf(stats.getLosses());
+
+                case "kills":
+                    return String.valueOf(stats.getKills());
+
+                case "deaths":
+                    return String.valueOf(stats.getDeaths());
+
+                case "matches":
+                    return String.valueOf(stats.getTotalMatches());
+
+                case "winrate":
+                    return String.format(
+                            Locale.US,
+                            "%.2f",
+                            stats.getWinRate()
+                    );
+
+                case "kdr":
+                    double kdr = stats.getDeaths() == 0
+                            ? stats.getKills()
+                            : (double) stats.getKills()
+                            / stats.getDeaths();
+
+                    return String.format(
+                            Locale.US,
+                            "%.2f",
+                            kdr
+                    );
+
+                default:
+                    return null;
+            }
+        }
+    }
+}
