@@ -99,6 +99,10 @@ public final class OblivionDuels extends JavaPlugin
             matchmakingCoordinator.stop();
         }
 
+        if (matchDeathListener != null) {
+            matchDeathListener.shutdown();
+        }
+
         if (databaseManager != null && statsManager != null) {
             databaseManager.saveAll(statsManager);
             databaseManager.close();
@@ -133,6 +137,10 @@ public final class OblivionDuels extends JavaPlugin
 
     public MatchmakingCoordinator getMatchmakingCoordinator() {
         return matchmakingCoordinator;
+    }
+
+    public MatchDeathListener getMatchDeathListener() {
+        return matchDeathListener;
     }
 
     private boolean isAdmin(CommandSender sender) {
@@ -576,4 +584,4 @@ public final class OblivionDuels extends JavaPlugin
             }
         }
     }
-        }
+                                           }
