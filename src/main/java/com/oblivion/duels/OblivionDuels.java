@@ -62,7 +62,7 @@ public final class OblivionDuels extends JavaPlugin
         matchManager = new MatchManager();
 
         matchProtectionListener =
-                new MatchProtectionListener(matchManager);
+                new MatchProtectionListener(this, matchManager);
 
         Bukkit.getPluginManager().registerEvents(
                 matchProtectionListener,
@@ -229,7 +229,7 @@ public final class OblivionDuels extends JavaPlugin
             return true;
         }
 
-        String sub = args[0].toLowerCase();
+        String sub = args[0].toLowerCase(Locale.ROOT);
 
         switch (sub) {
 
@@ -246,7 +246,7 @@ public final class OblivionDuels extends JavaPlugin
                     return true;
                 }
 
-                String action = args[1].toLowerCase();
+                String action = args[1].toLowerCase(Locale.ROOT);
 
                 if (action.equals("wand")) {
 
@@ -367,7 +367,7 @@ public final class OblivionDuels extends JavaPlugin
                         return true;
                     }
 
-                    String team = args[2].toLowerCase();
+                    String team = args[2].toLowerCase(Locale.ROOT);
 
                     Location location = player.getLocation();
 
@@ -384,7 +384,7 @@ public final class OblivionDuels extends JavaPlugin
                     }
 
                     player.sendMessage(prefix + ChatColor.GREEN
-                            + "Team " + team.toUpperCase()
+                            + "Team " + team.toUpperCase(Locale.ROOT)
                             + " spawn saved.");
 
                     return true;
@@ -473,7 +473,7 @@ public final class OblivionDuels extends JavaPlugin
                 int teamSize;
 
                 try {
-                    String mode = args[1].toLowerCase()
+                    String mode = args[1].toLowerCase(Locale.ROOT)
                             .replace("v", "");
 
                     teamSize = Integer.parseInt(mode);
