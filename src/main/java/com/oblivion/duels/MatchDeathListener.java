@@ -10,9 +10,11 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
 
@@ -33,6 +35,10 @@ public final class MatchDeathListener implements Listener {
 
     // Player ID -> items waiting to be collected
     private final Map<UUID, List<ItemStack>> pendingLoot =
+            new HashMap<>();
+
+    // Player ID -> disconnect grace-period task
+    private final Map<UUID, BukkitTask> disconnectTasks =
             new HashMap<>();
 
     public MatchDeathListener(
@@ -67,7 +73,6 @@ public final class MatchDeathListener implements Listener {
 
         UUID playerId = player.getUniqueId();
 
-        // Save the defeated player's inventory.
         saveInventory(match, player);
 
         event.setKeepInventory(false);
@@ -75,11 +80,9 @@ public final class MatchDeathListener implements Listener {
         event.setKeepLevel(true);
         event.setDroppedExp(0);
 
-        // Record death.
         statsManager.addDeath(playerId);
         saveStats(playerId);
 
-        // Record a kill only if the killer is an opposing participant.
         Player killer = player.getKiller();
 
         if (killer != null) {
@@ -113,6 +116,84 @@ public final class MatchDeathListener implements Listener {
                 ChatColor.RED + player.getName()
                         + " has been eliminated!");
 
+        checkMatchWinner(match, arenaName);
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+
+        Player player = event.getPlayer();
+
+        DuelMatch match = matchManager.getMatchForPlayer(
+                player.getUniqueId()
+        );
+
+        if (match == null
+                || match.getState() != DuelMatch.MatchState.ACTIVE
+                || !match.isAlive(player.getUniqueId())) {
+            return;
+        }
+
+        UUID playerId = player.getUniqueId();
+
+        int graceSeconds = Math.max(
+                1,
+                plugin.getConfig().getInt(
+                        "matchmaking.disconnect-grace-seconds",
+                        30
+                )
+        );
+
+        broadcast(match,
+                ChatColor.YELLOW + player.getName()
+                        + " disconnected! They have "
+                        + graceSeconds + " seconds to reconnect.");
+
+        BukkitTask task = Bukkit.getScheduler().runTaskLater(
+                plugin,
+                () -> {
+
+                    disconnectTasks.remove(playerId);
+
+                    Player onlinePlayer = Bukkit.getPlayer(playerId);
+
+                    DuelMatch currentMatch =
+                            matchManager.getMatchForPlayer(playerId);
+
+                    if (onlinePlayer != null
+                            || currentMatch != match
+                            || match.getState()
+                            != DuelMatch.MatchState.ACTIVE
+                            || !match.isAlive(playerId)) {
+                        return;
+                    }
+
+                    match.eliminatePlayer(playerId);
+
+                    statsManager.addDeath(playerId);
+                    saveStats(playerId);
+
+                    broadcast(match,
+                            ChatColor.RED
+                                    + "A disconnected player was eliminated!");
+
+                    String arenaName =
+                            matchManager.getArenaForMatch(
+                                    match.getMatchId()
+                            );
+
+                    checkMatchWinner(match, arenaName);
+                },
+                graceSeconds * 20L
+        );
+
+        disconnectTasks.put(playerId, task);
+    }
+
+    private void checkMatchWinner(
+            DuelMatch match,
+            String arenaName
+    ) {
         if (match.getAliveCount() == 0) {
             finishMatch(
                     match,
@@ -177,6 +258,8 @@ public final class MatchDeathListener implements Listener {
             String message,
             DuelMatch.WinningTeam winner
     ) {
+        cancelDisconnectTasks(match);
+
         distributeLoot(match, winner);
         recordResults(match, winner);
 
@@ -195,6 +278,26 @@ public final class MatchDeathListener implements Listener {
         );
     }
 
+    private void cancelDisconnectTasks(DuelMatch match) {
+
+        for (UUID playerId : match.getTeamA()) {
+            cancelDisconnectTask(playerId);
+        }
+
+        for (UUID playerId : match.getTeamB()) {
+            cancelDisconnectTask(playerId);
+        }
+    }
+
+    private void cancelDisconnectTask(UUID playerId) {
+
+        BukkitTask task = disconnectTasks.remove(playerId);
+
+        if (task != null) {
+            task.cancel();
+        }
+    }
+
     private void distributeLoot(
             DuelMatch match,
             DuelMatch.WinningTeam winner
@@ -206,7 +309,6 @@ public final class MatchDeathListener implements Listener {
             return;
         }
 
-        // A draw returns each inventory to its original owner.
         if (winner == DuelMatch.WinningTeam.DRAW
                 || winner == DuelMatch.WinningTeam.NONE) {
 
@@ -300,10 +402,29 @@ public final class MatchDeathListener implements Listener {
     public void onPlayerJoin(PlayerJoinEvent event) {
 
         Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
 
-        List<ItemStack> items = pendingLoot.remove(
-                player.getUniqueId()
-        );
+        // Check whether this player reconnected during the grace period.
+        BukkitTask task = disconnectTasks.remove(playerId);
+
+        if (task != null) {
+            task.cancel();
+
+            DuelMatch match =
+                    matchManager.getMatchForPlayer(playerId);
+
+            if (match != null
+                    && match.getState() == DuelMatch.MatchState.ACTIVE
+                    && match.isAlive(playerId)) {
+
+                broadcast(match,
+                        ChatColor.GREEN + player.getName()
+                                + " reconnected!");
+            }
+        }
+
+        // Deliver any loot waiting for this player.
+        List<ItemStack> items = pendingLoot.remove(playerId);
 
         if (items == null || items.isEmpty()) {
             return;
@@ -318,7 +439,7 @@ public final class MatchDeathListener implements Listener {
 
         if (!leftovers.isEmpty()) {
             storePendingLoot(
-                    player.getUniqueId(),
+                    playerId,
                     new ArrayList<>(leftovers.values())
             );
         } else {
