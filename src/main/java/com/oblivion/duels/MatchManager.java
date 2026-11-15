@@ -11,7 +11,6 @@ public final class MatchManager {
     private final Map<UUID, UUID> playerMatches =
             new HashMap<>();
 
-    // Stores the arena assigned to each match.
     private final Map<UUID, String> matchArenas =
             new HashMap<>();
 
@@ -32,6 +31,12 @@ public final class MatchManager {
                 || players.size() != teamSize * 2) {
             throw new IllegalArgumentException(
                     "Invalid match setup."
+            );
+        }
+
+        if (players.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalArgumentException(
+                    "Players cannot contain null values."
             );
         }
 
@@ -79,6 +84,10 @@ public final class MatchManager {
     }
 
     public DuelMatch getMatchForPlayer(UUID playerId) {
+        if (playerId == null) {
+            return null;
+        }
+
         UUID matchId = playerMatches.get(playerId);
 
         if (matchId == null) {
@@ -89,14 +98,22 @@ public final class MatchManager {
     }
 
     public DuelMatch getMatch(UUID matchId) {
-        return activeMatches.get(matchId);
+        return matchId == null
+                ? null
+                : activeMatches.get(matchId);
     }
 
     public String getArenaForMatch(UUID matchId) {
-        return matchArenas.get(matchId);
+        return matchId == null
+                ? null
+                : matchArenas.get(matchId);
     }
 
     public void endMatch(UUID matchId) {
+        if (matchId == null) {
+            return;
+        }
+
         DuelMatch match = activeMatches.remove(matchId);
 
         if (match == null) {
@@ -104,18 +121,19 @@ public final class MatchManager {
         }
 
         for (UUID player : match.getTeamA()) {
-            playerMatches.remove(player);
+            playerMatches.remove(player, matchId);
         }
 
         for (UUID player : match.getTeamB()) {
-            playerMatches.remove(player);
+            playerMatches.remove(player, matchId);
         }
 
         matchArenas.remove(matchId);
     }
 
     public boolean isInMatch(UUID playerId) {
-        return playerMatches.containsKey(playerId);
+        return playerId != null
+                && playerMatches.containsKey(playerId);
     }
 
     public int getActiveMatchCount() {
