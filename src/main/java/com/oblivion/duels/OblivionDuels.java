@@ -72,7 +72,7 @@ public final class OblivionDuels extends JavaPlugin
                 matchManager,
                 arenaManager,
                 statsManager,
-                databaseManager,
+                databaseManager
         );
 
         duelMenu = new DuelMenu(this, matchmaking);
