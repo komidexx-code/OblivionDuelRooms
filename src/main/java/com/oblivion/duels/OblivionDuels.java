@@ -70,7 +70,9 @@ public final class OblivionDuels extends JavaPlugin
         matchDeathListener = new MatchDeathListener(
                 this,
                 matchManager,
-                arenaManager
+                arenaManager,
+                statsManager,
+                databaseManager,
         );
 
         duelMenu = new DuelMenu(this, matchmaking);
