@@ -18,8 +18,7 @@ public final class MatchPreparationManager {
     private final MatchManager matchManager;
     private final ArenaManager arenaManager;
 
-    private final Map<UUID, BukkitTask> countdownTasks =
-            new HashMap<>();
+    private final Map<UUID, BukkitTask> countdownTasks = new HashMap<>();
 
     public MatchPreparationManager(
             JavaPlugin plugin,
@@ -31,25 +30,19 @@ public final class MatchPreparationManager {
         this.arenaManager = arenaManager;
     }
 
-    public boolean prepareMatch(
-            DuelMatch match,
-            DuelArena arena
-    ) {
-        if (match == null || arena == null || !arena.isReady()) {
+    public boolean prepareMatch(DuelMatch match, DuelArena arena) {
+
+        if (match == null || arena == null || !arena.isReady()
+                || match.getState() != DuelMatch.MatchState.WAITING) {
             return false;
         }
 
-        if (match.getState() != DuelMatch.MatchState.WAITING) {
+        if (arena.getTeamASpawn() == null || arena.getTeamBSpawn() == null) {
             return false;
         }
 
-        if (arena.getTeamASpawn() == null
-                || arena.getTeamBSpawn() == null) {
-            return false;
-        }
-
-        for (UUID playerId : match.getTeamA()) {
-            Player player = Bukkit.getPlayer(playerId);
+        for (UUID id : match.getTeamA()) {
+            Player player = Bukkit.getPlayer(id);
 
             if (player == null || !player.isOnline()) {
                 abortMatch(match, arena, "A player disconnected.");
@@ -57,8 +50,8 @@ public final class MatchPreparationManager {
             }
         }
 
-        for (UUID playerId : match.getTeamB()) {
-            Player player = Bukkit.getPlayer(playerId);
+        for (UUID id : match.getTeamB()) {
+            Player player = Bukkit.getPlayer(id);
 
             if (player == null || !player.isOnline()) {
                 abortMatch(match, arena, "A player disconnected.");
@@ -66,53 +59,29 @@ public final class MatchPreparationManager {
             }
         }
 
-        for (UUID playerId : match.getTeamA()) {
-            Player player = Bukkit.getPlayer(playerId);
-            player.teleport(arena.getTeamASpawn());
+        for (UUID id : match.getTeamA()) {
+            Bukkit.getPlayer(id).teleport(arena.getTeamASpawn());
         }
 
-        for (UUID playerId : match.getTeamB()) {
-            Player player = Bukkit.getPlayer(playerId);
-            player.teleport(arena.getTeamBSpawn());
+        for (UUID id : match.getTeamB()) {
+            Bukkit.getPlayer(id).teleport(arena.getTeamBSpawn());
         }
 
         match.setState(DuelMatch.MatchState.COUNTDOWN);
 
-        for (UUID playerId : match.getTeamA()) {
-            Player player = Bukkit.getPlayer(playerId);
-
-            if (player != null) {
-                player.sendMessage(ChatColor.LIGHT_PURPLE
-                        + "OblivionDuels "
-                        + ChatColor.GRAY
-                        + "Match starting soon!");
-            }
-        }
-
-        for (UUID playerId : match.getTeamB()) {
-            Player player = Bukkit.getPlayer(playerId);
-
-            if (player != null) {
-                player.sendMessage(ChatColor.LIGHT_PURPLE
-                        + "OblivionDuels "
-                        + ChatColor.GRAY
-                        + "Match starting soon!");
-            }
-        }
+        broadcast(match, ChatColor.LIGHT_PURPLE
+                + "OblivionDuels " + ChatColor.GRAY
+                + "Match starting soon!");
 
         startCountdown(match, arena);
         return true;
     }
 
-    private void startCountdown(
-            DuelMatch match,
-            DuelArena arena
-    ) {
-        int seconds = Math.max(
-                1,
+    private void startCountdown(DuelMatch match, DuelArena arena) {
+
+        int seconds = Math.max(1,
                 plugin.getConfig().getInt(
-                        "matchmaking.countdown-seconds",
-                        10
+                        "matchmaking.countdown-seconds", 10
                 )
         );
 
@@ -125,33 +94,30 @@ public final class MatchPreparationManager {
             @Override
             public void run() {
 
-                if (match.getState()
-                        != DuelMatch.MatchState.COUNTDOWN) {
+                if (match.getState() != DuelMatch.MatchState.COUNTDOWN) {
                     cancel();
                     countdownTasks.remove(matchId);
                     return;
                 }
 
-                for (UUID playerId : match.getTeamA()) {
-                    Player player = Bukkit.getPlayer(playerId);
+                for (UUID id : match.getTeamA()) {
+                    Player player = Bukkit.getPlayer(id);
 
                     if (player == null || !player.isOnline()) {
                         cancel();
                         countdownTasks.remove(matchId);
-                        abortMatch(match, arena,
-                                "A player disconnected.");
+                        abortMatch(match, arena, "A player disconnected.");
                         return;
                     }
                 }
 
-                for (UUID playerId : match.getTeamB()) {
-                    Player player = Bukkit.getPlayer(playerId);
+                for (UUID id : match.getTeamB()) {
+                    Player player = Bukkit.getPlayer(id);
 
                     if (player == null || !player.isOnline()) {
                         cancel();
                         countdownTasks.remove(matchId);
-                        abortMatch(match, arena,
-                                "A player disconnected.");
+                        abortMatch(match, arena, "A player disconnected.");
                         return;
                     }
                 }
@@ -159,18 +125,24 @@ public final class MatchPreparationManager {
                 if (remaining <= 0) {
                     match.setState(DuelMatch.MatchState.ACTIVE);
 
-                    broadcast(match,
-                            ChatColor.GREEN + "FIGHT!");
+                    broadcast(match, ChatColor.GREEN + "FIGHT!");
+
+                    if (plugin instanceof OblivionDuels duels) {
+                        MatchDeathListener listener =
+                                duels.getMatchDeathListener();
+
+                        if (listener != null) {
+                            listener.startMatchTimeout(match);
+                        }
+                    }
 
                     cancel();
                     countdownTasks.remove(matchId);
                     return;
                 }
 
-                broadcast(match,
-                        ChatColor.YELLOW
-                                + "Match starts in "
-                                + remaining + "...");
+                broadcast(match, ChatColor.YELLOW
+                        + "Match starts in " + remaining + "...");
 
                 remaining--;
             }
@@ -181,16 +153,17 @@ public final class MatchPreparationManager {
     }
 
     private void broadcast(DuelMatch match, String message) {
-        for (UUID playerId : match.getTeamA()) {
-            Player player = Bukkit.getPlayer(playerId);
+
+        for (UUID id : match.getTeamA()) {
+            Player player = Bukkit.getPlayer(id);
 
             if (player != null) {
                 player.sendMessage(message);
             }
         }
 
-        for (UUID playerId : match.getTeamB()) {
-            Player player = Bukkit.getPlayer(playerId);
+        for (UUID id : match.getTeamB()) {
+            Player player = Bukkit.getPlayer(id);
 
             if (player != null) {
                 player.sendMessage(message);
@@ -198,29 +171,23 @@ public final class MatchPreparationManager {
         }
     }
 
-    private void abortMatch(
-            DuelMatch match,
-            DuelArena arena,
-            String reason
-    ) {
-        BukkitTask task = countdownTasks.remove(
-                match.getMatchId()
-        );
+    private void abortMatch(DuelMatch match, DuelArena arena, String reason) {
+
+        BukkitTask task = countdownTasks.remove(match.getMatchId());
 
         if (task != null) {
             task.cancel();
         }
 
         match.setState(DuelMatch.MatchState.ENDED);
-
         matchManager.endMatch(match.getMatchId());
         arenaManager.releaseArena(arena.getName());
 
-        broadcast(match,
-                ChatColor.RED + "Match cancelled: " + reason);
+        broadcast(match, ChatColor.RED + "Match cancelled: " + reason);
     }
 
     public void shutdown() {
+
         for (BukkitTask task : countdownTasks.values()) {
             task.cancel();
         }
