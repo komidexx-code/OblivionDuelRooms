@@ -9,6 +9,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -18,7 +19,7 @@ public final class ArenaManager {
     private final JavaPlugin plugin;
 
     private final Map<String, DuelArena> arenas =
-            new HashMap<>();
+            new LinkedHashMap<>();
 
     private final Set<String> occupiedArenas =
             new HashSet<>();
@@ -45,7 +46,7 @@ public final class ArenaManager {
             return false;
         }
 
-        String key = name.toLowerCase(Locale.ROOT);
+        String key = normalizeName(name);
 
         if (arenas.containsKey(key)) {
             return false;
@@ -58,13 +59,19 @@ public final class ArenaManager {
     public boolean registerArena(DuelArena arena) {
         if (arena == null
                 || !arena.isReady()
-                || !isValidTeamSize(arena.getTeamSize())) {
+                || !isValidTeamSize(arena.getTeamSize())
+                || arena.getName() == null
+                || arena.getName().isBlank()) {
             return false;
         }
 
-        String key = arena.getName().toLowerCase(Locale.ROOT);
+        String key = normalizeName(arena.getName());
 
-        if (arenas.containsKey(key)) {
+        DuelArena existing = arenas.get(key);
+
+        if (existing != null
+                && existing != arena
+                && occupiedArenas.contains(key)) {
             return false;
         }
 
@@ -78,12 +85,16 @@ public final class ArenaManager {
         return teamSize >= 1 && teamSize <= 5;
     }
 
+    private String normalizeName(String name) {
+        return name.toLowerCase(Locale.ROOT);
+    }
+
     public DuelArena getArena(String name) {
         if (name == null) {
             return null;
         }
 
-        return arenas.get(name.toLowerCase(Locale.ROOT));
+        return arenas.get(normalizeName(name));
     }
 
     public DuelArena getAvailableArena(int teamSize) {
@@ -122,11 +133,11 @@ public final class ArenaManager {
     }
 
     public boolean reserveArena(String name) {
-        if (name == null) {
+        if (name == null || name.isBlank()) {
             return false;
         }
 
-        String key = name.toLowerCase(Locale.ROOT);
+        String key = normalizeName(name);
         DuelArena arena = arenas.get(key);
 
         if (arena == null
@@ -141,9 +152,7 @@ public final class ArenaManager {
 
     public void releaseArena(String name) {
         if (name != null) {
-            occupiedArenas.remove(
-                    name.toLowerCase(Locale.ROOT)
-            );
+            occupiedArenas.remove(normalizeName(name));
         }
     }
 
@@ -159,7 +168,8 @@ public final class ArenaManager {
 
         if (world == null) {
             plugin.getLogger().warning(
-                    "Cannot save arena: world is unavailable."
+                    "Cannot save arena '" + arena.getName()
+                            + "': world is unavailable."
             );
             return;
         }
@@ -185,6 +195,10 @@ public final class ArenaManager {
             String path,
             Location location
     ) {
+        if (location == null) {
+            return;
+        }
+
         plugin.getConfig().set(path + ".x", location.getX());
         plugin.getConfig().set(path + ".y", location.getY());
         plugin.getConfig().set(path + ".z", location.getZ());
@@ -250,6 +264,10 @@ public final class ArenaManager {
             try {
                 arena = new DuelArena(name, world);
             } catch (IllegalArgumentException exception) {
+                plugin.getLogger().warning(
+                        "Arena '" + name
+                                + "' has an invalid name and was skipped."
+                );
                 continue;
             }
 
@@ -291,7 +309,7 @@ public final class ArenaManager {
 
             if (arena.isReady()) {
                 arenas.put(
-                        name.toLowerCase(Locale.ROOT),
+                        normalizeName(name),
                         arena
                 );
             } else {
@@ -335,8 +353,6 @@ public final class ArenaManager {
 
     public boolean isOccupied(String name) {
         return name != null
-                && occupiedArenas.contains(
-                        name.toLowerCase(Locale.ROOT)
-                );
+                && occupiedArenas.contains(normalizeName(name));
     }
 }
