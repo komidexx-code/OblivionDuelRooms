@@ -1,6 +1,7 @@
 
 package com.oblivion.duels;
 
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
@@ -10,6 +11,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -48,6 +51,15 @@ public final class DatabaseManager {
                             losses INTEGER NOT NULL DEFAULT 0,
                             kills INTEGER NOT NULL DEFAULT 0,
                             deaths INTEGER NOT NULL DEFAULT 0
+                        )
+                        """);
+
+                statement.executeUpdate("""
+                        CREATE TABLE IF NOT EXISTS pending_loot (
+                            uuid TEXT NOT NULL,
+                            item_index INTEGER NOT NULL,
+                            item_data BLOB NOT NULL,
+                            PRIMARY KEY (uuid, item_index)
                         )
                         """);
             }
@@ -102,7 +114,7 @@ public final class DatabaseManager {
     }
 
     public void saveStats(UUID playerId, PlayerStats stats) {
-        if (!isConnected()) {
+        if (!isConnected() || playerId == null || stats == null) {
             return;
         }
 
@@ -170,6 +182,150 @@ public final class DatabaseManager {
             } catch (SQLException exception) {
                 exception.printStackTrace();
             }
+        }
+    }
+
+    public void savePendingLoot(
+            UUID playerId,
+            List<ItemStack> items
+    ) {
+        if (!isConnected() || playerId == null || items == null) {
+            return;
+        }
+
+        boolean previousAutoCommit = true;
+
+        try {
+            previousAutoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+
+            try (PreparedStatement delete =
+                         connection.prepareStatement(
+                                 "DELETE FROM pending_loot WHERE uuid = ?"
+                         )) {
+
+                delete.setString(1, playerId.toString());
+                delete.executeUpdate();
+            }
+
+            String sql = """
+                    INSERT INTO pending_loot
+                    (uuid, item_index, item_data)
+                    VALUES (?, ?, ?)
+                    """;
+
+            try (PreparedStatement insert =
+                         connection.prepareStatement(sql)) {
+
+                int index = 0;
+
+                for (ItemStack item : items) {
+                    if (item == null || item.getType().isAir()) {
+                        continue;
+                    }
+
+                    insert.setString(1, playerId.toString());
+                    insert.setInt(2, index++);
+                    insert.setBytes(3, item.serializeAsBytes());
+                    insert.addBatch();
+                }
+
+                insert.executeBatch();
+            }
+
+            connection.commit();
+
+        } catch (Exception exception) {
+            try {
+                connection.rollback();
+            } catch (SQLException rollbackException) {
+                rollbackException.printStackTrace();
+            }
+
+            plugin.getLogger().severe(
+                    "Could not save pending loot for " + playerId
+            );
+            exception.printStackTrace();
+
+        } finally {
+            try {
+                connection.setAutoCommit(previousAutoCommit);
+            } catch (SQLException exception) {
+                exception.printStackTrace();
+            }
+        }
+    }
+
+    public List<ItemStack> loadPendingLoot(UUID playerId) {
+        List<ItemStack> items = new ArrayList<>();
+
+        if (!isConnected() || playerId == null) {
+            return items;
+        }
+
+        String sql = """
+                SELECT item_data
+                FROM pending_loot
+                WHERE uuid = ?
+                ORDER BY item_index ASC
+                """;
+
+        try (PreparedStatement statement =
+                     connection.prepareStatement(sql)) {
+
+            statement.setString(1, playerId.toString());
+
+            try (ResultSet results = statement.executeQuery()) {
+                while (results.next()) {
+                    byte[] data = results.getBytes("item_data");
+
+                    if (data == null || data.length == 0) {
+                        continue;
+                    }
+
+                    try {
+                        ItemStack item = ItemStack.deserializeBytes(data);
+
+                        if (item != null && !item.getType().isAir()) {
+                            items.add(item);
+                        }
+                    } catch (Exception exception) {
+                        plugin.getLogger().warning(
+                                "Could not deserialize a pending item for "
+                                        + playerId
+                        );
+                    }
+                }
+            }
+
+        } catch (SQLException exception) {
+            plugin.getLogger().severe(
+                    "Could not load pending loot for " + playerId
+            );
+            exception.printStackTrace();
+        }
+
+        return items;
+    }
+
+    public void removePendingLoot(UUID playerId) {
+        if (!isConnected() || playerId == null) {
+            return;
+        }
+
+        try (PreparedStatement statement =
+                     connection.prepareStatement(
+                             "DELETE FROM pending_loot WHERE uuid = ?"
+                     )) {
+
+            statement.setString(1, playerId.toString());
+            statement.executeUpdate();
+
+        } catch (SQLException exception) {
+            plugin.getLogger().severe(
+                    "Could not remove pending loot for " + playerId
+            );
+            exception.printStackTrace();
         }
     }
 
