@@ -212,6 +212,31 @@ public final class ArenaRollbackManager implements Listener {
 
         String key = normalize(arena.getName());
 
+        // If this arena is already being restored, join that restoration.
+        // Never release the arena before the existing restoration finishes.
+        if (pendingRestorations.containsKey(key)) {
+
+            if (onComplete != null) {
+
+                Runnable existingCallback =
+                        pendingCallbacks.get(key);
+
+                if (existingCallback == null) {
+                    pendingCallbacks.put(key, onComplete);
+                } else {
+                    pendingCallbacks.put(key, () -> {
+                        try {
+                            existingCallback.run();
+                        } finally {
+                            onComplete.run();
+                        }
+                    });
+                }
+            }
+
+            return;
+        }
+
         Map<Location, BlockState> original =
                 snapshots.remove(key);
 
