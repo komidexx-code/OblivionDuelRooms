@@ -36,4 +36,24 @@ storage:
   type: SQLITE
   database: duels.db
 
+match-hud:
+  enabled: true
+
+  scoreboard:
+    enabled: true
+    title: "&5&lOBLIVION DUELS"
+    team-a-name: "&e&lTEAM A"
+    team-b-name: "&b&lTEAM B"
+
+  timer:
+    enabled: true
+    title: "&5&lMATCH TIME"
+    color: PURPLE
+
+  score-sound:
+    enabled: true
+    sound: ENTITY_FIREWORK_ROCKET_BLAST
+    volume: 1.0
+    pitch: 1.0
+
 arenas: {}
