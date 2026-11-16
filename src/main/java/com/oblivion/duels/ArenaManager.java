@@ -9,6 +9,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -28,24 +29,40 @@ public final class ArenaManager {
     }
 
     public boolean createArena(String name, World world) {
-        if (name == null || name.isBlank()
-                || world == null
-                || arenas.containsKey(name.toLowerCase())) {
+        if (name == null || name.isBlank() || world == null) {
             return false;
         }
 
-        DuelArena arena = new DuelArena(name, world);
+        DuelArena arena;
 
-        arenas.put(name.toLowerCase(), arena);
+        try {
+            arena = new DuelArena(name, world);
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
+
+        if (!isValidTeamSize(arena.getTeamSize())) {
+            return false;
+        }
+
+        String key = name.toLowerCase(Locale.ROOT);
+
+        if (arenas.containsKey(key)) {
+            return false;
+        }
+
+        arenas.put(key, arena);
         return true;
     }
 
     public boolean registerArena(DuelArena arena) {
-        if (arena == null || !arena.isReady()) {
+        if (arena == null
+                || !arena.isReady()
+                || !isValidTeamSize(arena.getTeamSize())) {
             return false;
         }
 
-        String key = arena.getName().toLowerCase();
+        String key = arena.getName().toLowerCase(Locale.ROOT);
 
         if (arenas.containsKey(key)) {
             return false;
@@ -57,12 +74,36 @@ public final class ArenaManager {
         return true;
     }
 
+    private boolean isValidTeamSize(int teamSize) {
+        return teamSize >= 1 && teamSize <= 5;
+    }
+
     public DuelArena getArena(String name) {
         if (name == null) {
             return null;
         }
 
-        return arenas.get(name.toLowerCase());
+        return arenas.get(name.toLowerCase(Locale.ROOT));
+    }
+
+    public DuelArena getAvailableArena(int teamSize) {
+        if (!isValidTeamSize(teamSize)) {
+            return null;
+        }
+
+        for (Map.Entry<String, DuelArena> entry
+                : arenas.entrySet()) {
+
+            DuelArena arena = entry.getValue();
+
+            if (arena.getTeamSize() == teamSize
+                    && arena.isReady()
+                    && !occupiedArenas.contains(entry.getKey())) {
+                return arena;
+            }
+        }
+
+        return null;
     }
 
     public DuelArena getAvailableArena() {
@@ -85,10 +126,11 @@ public final class ArenaManager {
             return false;
         }
 
-        String key = name.toLowerCase();
+        String key = name.toLowerCase(Locale.ROOT);
         DuelArena arena = arenas.get(key);
 
-        if (arena == null || !arena.isReady()
+        if (arena == null
+                || !arena.isReady()
                 || occupiedArenas.contains(key)) {
             return false;
         }
@@ -99,12 +141,16 @@ public final class ArenaManager {
 
     public void releaseArena(String name) {
         if (name != null) {
-            occupiedArenas.remove(name.toLowerCase());
+            occupiedArenas.remove(
+                    name.toLowerCase(Locale.ROOT)
+            );
         }
     }
 
     public void saveArena(DuelArena arena) {
-        if (arena == null || !arena.isReady()) {
+        if (arena == null
+                || !arena.isReady()
+                || !isValidTeamSize(arena.getTeamSize())) {
             return;
         }
 
@@ -118,19 +164,27 @@ public final class ArenaManager {
             return;
         }
 
-        plugin.getConfig().set(path + ".world", world.getName());
+        plugin.getConfig().set(
+                path + ".world",
+                world.getName()
+        );
 
         saveLocation(path + ".corner1", arena.getCorner1());
         saveLocation(path + ".corner2", arena.getCorner2());
         saveLocation(path + ".team-a-spawn", arena.getTeamASpawn());
         saveLocation(path + ".team-b-spawn", arena.getTeamBSpawn());
-        saveLocation(path + ".spectator-spawn",
-                arena.getSpectatorSpawn());
+        saveLocation(
+                path + ".spectator-spawn",
+                arena.getSpectatorSpawn()
+        );
 
         plugin.saveConfig();
     }
 
-    private void saveLocation(String path, Location location) {
+    private void saveLocation(
+            String path,
+            Location location
+    ) {
         plugin.getConfig().set(path + ".x", location.getX());
         plugin.getConfig().set(path + ".y", location.getY());
         plugin.getConfig().set(path + ".z", location.getZ());
@@ -175,19 +229,38 @@ public final class ArenaManager {
                 continue;
             }
 
-            String worldName = arenaSection.getString("world");
+            String worldName =
+                    arenaSection.getString("world");
+
             World world = worldName == null
-                    ? null : Bukkit.getWorld(worldName);
+                    ? null
+                    : Bukkit.getWorld(worldName);
 
             if (world == null) {
                 plugin.getLogger().warning(
                         "Arena '" + name
-                                + "' was skipped because its world is unavailable."
+                                + "' was skipped because its world "
+                                + "is unavailable."
                 );
                 continue;
             }
 
-            DuelArena arena = new DuelArena(name, world);
+            DuelArena arena;
+
+            try {
+                arena = new DuelArena(name, world);
+            } catch (IllegalArgumentException exception) {
+                continue;
+            }
+
+            if (!isValidTeamSize(arena.getTeamSize())) {
+                plugin.getLogger().warning(
+                        "Arena '" + name
+                                + "' was skipped because its name "
+                                + "does not specify a valid match size."
+                );
+                continue;
+            }
 
             arena.setCorner1(loadLocation(
                     arenaSection.getConfigurationSection("corner1"),
@@ -210,12 +283,22 @@ public final class ArenaManager {
             ));
 
             arena.setSpectatorSpawn(loadLocation(
-                    arenaSection.getConfigurationSection("spectator-spawn"),
+                    arenaSection.getConfigurationSection(
+                            "spectator-spawn"
+                    ),
                     world
             ));
 
             if (arena.isReady()) {
-                arenas.put(name.toLowerCase(), arena);
+                arenas.put(
+                        name.toLowerCase(Locale.ROOT),
+                        arena
+                );
+            } else {
+                plugin.getLogger().warning(
+                        "Arena '" + name
+                                + "' was skipped because it is incomplete."
+                );
             }
         }
 
@@ -228,8 +311,32 @@ public final class ArenaManager {
         return arenas.size();
     }
 
+    public int getAvailableArenaCount(int teamSize) {
+        if (!isValidTeamSize(teamSize)) {
+            return 0;
+        }
+
+        int count = 0;
+
+        for (Map.Entry<String, DuelArena> entry
+                : arenas.entrySet()) {
+
+            DuelArena arena = entry.getValue();
+
+            if (arena.getTeamSize() == teamSize
+                    && arena.isReady()
+                    && !occupiedArenas.contains(entry.getKey())) {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
     public boolean isOccupied(String name) {
         return name != null
-                && occupiedArenas.contains(name.toLowerCase());
+                && occupiedArenas.contains(
+                        name.toLowerCase(Locale.ROOT)
+                );
     }
 }
