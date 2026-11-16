@@ -7,7 +7,6 @@ import org.bukkit.World;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -222,10 +221,6 @@ public final class ArenaManager {
         );
     }
 
-    /**
-     * Reloads arena definitions while preserving reservations.
-     * Arenas currently occupied by matches are never replaced.
-     */
     public void reloadArenas() {
         ConfigurationSection section =
                 plugin.getConfig().getConfigurationSection("arenas");
@@ -348,17 +343,27 @@ public final class ArenaManager {
     }
 
     public void loadArenas() {
+        Set<String> previouslyOccupied =
+                new HashSet<>(occupiedArenas);
+
         arenas.clear();
-        occupiedArenas.clear();
 
         ConfigurationSection section =
                 plugin.getConfig().getConfigurationSection("arenas");
 
         if (section == null) {
+            occupiedArenas.clear();
+            occupiedArenas.addAll(previouslyOccupied);
             return;
         }
 
         for (String name : section.getKeys(false)) {
+            String key = normalizeName(name);
+
+            if (previouslyOccupied.contains(key)) {
+                continue;
+            }
+
             ConfigurationSection arenaSection =
                     section.getConfigurationSection(name);
 
@@ -396,7 +401,7 @@ public final class ArenaManager {
             loadArenaLocations(arena, arenaSection, world);
 
             if (arena.isReady()) {
-                arenas.put(normalizeName(name), arena);
+                arenas.put(key, arena);
             } else {
                 plugin.getLogger().warning(
                         "Arena '" + name
@@ -404,6 +409,9 @@ public final class ArenaManager {
                 );
             }
         }
+
+        occupiedArenas.clear();
+        occupiedArenas.addAll(previouslyOccupied);
 
         plugin.getLogger().info(
                 "Loaded " + arenas.size() + " duel arena(s)."
