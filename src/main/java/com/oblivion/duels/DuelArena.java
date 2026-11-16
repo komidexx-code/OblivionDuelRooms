@@ -120,21 +120,42 @@ public final class DuelArena {
             return false;
         }
 
-        double minX = Math.min(corner1.getX(), corner2.getX());
-        double maxX = Math.max(corner1.getX(), corner2.getX());
+        int minX = Math.min(
+                corner1.getBlockX(),
+                corner2.getBlockX()
+        );
 
-        double minY = Math.min(corner1.getY(), corner2.getY());
-        double maxY = Math.max(corner1.getY(), corner2.getY());
+        int maxX = Math.max(
+                corner1.getBlockX(),
+                corner2.getBlockX()
+        );
 
-        double minZ = Math.min(corner1.getZ(), corner2.getZ());
-        double maxZ = Math.max(corner1.getZ(), corner2.getZ());
+        int minY = Math.min(
+                corner1.getBlockY(),
+                corner2.getBlockY()
+        );
 
-        return location.getX() >= minX
-                && location.getX() <= maxX
-                && location.getY() >= minY
-                && location.getY() <= maxY
-                && location.getZ() >= minZ
-                && location.getZ() <= maxZ;
+        int maxY = Math.max(
+                corner1.getBlockY(),
+                corner2.getBlockY()
+        );
+
+        int minZ = Math.min(
+                corner1.getBlockZ(),
+                corner2.getBlockZ()
+        );
+
+        int maxZ = Math.max(
+                corner1.getBlockZ(),
+                corner2.getBlockZ()
+        );
+
+        return location.getBlockX() >= minX
+                && location.getBlockX() <= maxX
+                && location.getBlockY() >= minY
+                && location.getBlockY() <= maxY
+                && location.getBlockZ() >= minZ
+                && location.getBlockZ() <= maxZ;
     }
 
     public boolean hasValidBounds() {
@@ -148,7 +169,9 @@ public final class DuelArena {
                 && hasValidBounds()
                 && sameWorld(teamASpawn)
                 && sameWorld(teamBSpawn)
-                && sameWorld(spectatorSpawn);
+                && sameWorld(spectatorSpawn)
+                && contains(teamASpawn)
+                && contains(teamBSpawn);
     }
 
     private boolean sameWorld(Location location) {
