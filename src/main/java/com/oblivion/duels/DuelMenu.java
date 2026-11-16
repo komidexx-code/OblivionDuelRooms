@@ -2,7 +2,6 @@
 package com.oblivion.duels;
 
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -16,11 +15,14 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.List;
+import java.util.Locale;
 
 public final class DuelMenu implements Listener {
 
     private final OblivionDuels plugin;
     private final MatchmakingManager matchmaking;
+
+    private static final String PREFIX = "§8[§bᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs§8] ";
 
     public DuelMenu(
             OblivionDuels plugin,
@@ -60,7 +62,7 @@ public final class DuelMenu implements Listener {
         Inventory inventory = Bukkit.createInventory(
                 holder,
                 27,
-                ChatColor.DARK_PURPLE + "OblivionDuels"
+                "§8ᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs"
         );
 
         holder.inventory = inventory;
@@ -75,7 +77,7 @@ public final class DuelMenu implements Listener {
         Inventory inventory = Bukkit.createInventory(
                 holder,
                 27,
-                ChatColor.DARK_PURPLE + "Your Statistics"
+                "§8ᴅᴜᴇʟ sᴛᴀᴛɪsᴛɪᴄs"
         );
 
         holder.inventory = inventory;
@@ -89,7 +91,7 @@ public final class DuelMenu implements Listener {
         inventory.clear();
 
         ItemStack filler = createItem(
-                Material.PURPLE_STAINED_GLASS_PANE,
+                Material.BLUE_STAINED_GLASS_PANE,
                 " ",
                 List.of()
         );
@@ -104,56 +106,76 @@ public final class DuelMenu implements Listener {
 
         inventory.setItem(4, createItem(
                 Material.NETHER_STAR,
-                "§5§lYOUR DUEL STATISTICS",
-                List.of("§7OblivionDuels player profile")
+                "§b§lʏᴏᴜʀ ᴅᴜᴇʟ sᴛᴀᴛs",
+                List.of(
+                        "§7ᴘʟᴀʏᴇʀ ᴘʀᴏғɪʟᴇ",
+                        "§8ᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs"
+                )
         ));
 
         inventory.setItem(10, createItem(
                 Material.GOLD_INGOT,
-                "§6§lWins",
-                List.of("§7Total wins: §a" + stats.getWins())
+                "§b§lᴡɪɴs",
+                List.of(
+                        "§7ᴛᴏᴛᴀʟ ᴡɪɴs: §f" + stats.getWins()
+                )
         ));
 
         inventory.setItem(11, createItem(
                 Material.REDSTONE,
-                "§c§lLosses",
-                List.of("§7Total losses: §c" + stats.getLosses())
+                "§c§lʟᴏssᴇs",
+                List.of(
+                        "§7ᴛᴏᴛᴀʟ ʟᴏssᴇs: §f"
+                                + stats.getLosses()
+                )
         ));
 
         inventory.setItem(12, createItem(
                 Material.IRON_SWORD,
-                "§e§lKills",
-                List.of("§7Total kills: §e" + stats.getKills())
+                "§b§lᴋɪʟʟs",
+                List.of(
+                        "§7ᴛᴏᴛᴀʟ ᴋɪʟʟs: §f"
+                                + stats.getKills()
+                )
         ));
 
         inventory.setItem(13, createItem(
                 Material.SKELETON_SKULL,
-                "§f§lDeaths",
-                List.of("§7Total deaths: §f" + stats.getDeaths())
+                "§f§lᴅᴇᴀᴛʜs",
+                List.of(
+                        "§7ᴛᴏᴛᴀʟ ᴅᴇᴀᴛʜs: §f"
+                                + stats.getDeaths()
+                )
         ));
 
         inventory.setItem(14, createItem(
                 Material.PAPER,
-                "§b§lTotal Matches",
-                List.of("§7Matches played: §f"
-                        + stats.getTotalMatches())
+                "§3§lᴍᴀᴛᴄʜᴇs ᴘʟᴀʏᴇᴅ",
+                List.of(
+                        "§7ᴛᴏᴛᴀʟ ᴍᴀᴛᴄʜᴇs: §f"
+                                + stats.getTotalMatches()
+                )
         ));
 
         inventory.setItem(15, createItem(
                 Material.EXPERIENCE_BOTTLE,
-                "§d§lWin Rate",
-                List.of("§7Win rate: §d"
-                        + String.format(
-                                java.util.Locale.US,
-                                "%.2f%%",
-                                stats.getWinRate()
-                        ))
+                "§b§lᴡɪɴ ʀᴀᴛᴇ",
+                List.of(
+                        "§7ᴡɪɴ ʀᴀᴛᴇ: §f"
+                                + String.format(
+                                        Locale.US,
+                                        "%.2f%%",
+                                        stats.getWinRate()
+                                )
+                )
         ));
 
         inventory.setItem(22, createItem(
                 Material.ARROW,
-                "§e§lBack",
-                List.of("§7Return to the main menu.")
+                "§b§lʙᴀᴄᴋ",
+                List.of(
+                        "§7ʀᴇᴛᴜʀɴ ᴛᴏ ᴛʜᴇ ᴍᴀɪɴ ᴍᴇɴᴜ"
+                )
         ));
     }
 
@@ -162,7 +184,7 @@ public final class DuelMenu implements Listener {
         inventory.clear();
 
         ItemStack filler = createItem(
-                Material.PURPLE_STAINED_GLASS_PANE,
+                Material.BLUE_STAINED_GLASS_PANE,
                 " ",
                 List.of()
         );
@@ -173,34 +195,51 @@ public final class DuelMenu implements Listener {
 
         inventory.setItem(4, createItem(
                 Material.NETHER_STAR,
-                "§5§lOBLIVION DUELS",
+                "§b§lᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs",
                 List.of(
-                        "§7Welcome to OblivionDuels!",
-                        "§8Choose your preferred game mode."
+                        "§7ᴡᴇʟᴄᴏᴍᴇ, §f" + player.getName(),
+                        "",
+                        "§8ᴄʜᴏᴏsᴇ ʏᴏᴜʀ ᴅᴜᴇʟ ᴍᴏᴅᴇ"
                 )
         ));
 
-        setMode(player, inventory, 11, 1,
-                Material.IRON_SWORD, "Solo Duel");
+        setMode(
+                inventory, 11, 1,
+                Material.IRON_SWORD,
+                "ᴏɴᴇ ᴠs ᴏɴᴇ"
+        );
 
-        setMode(player, inventory, 12, 2,
-                Material.GOLDEN_SWORD, "Doubles");
+        setMode(
+                inventory, 12, 2,
+                Material.GOLDEN_SWORD,
+                "ᴛᴡᴏ ᴠs ᴛᴡᴏ"
+        );
 
-        setMode(player, inventory, 13, 3,
-                Material.DIAMOND_SWORD, "Triples");
+        setMode(
+                inventory, 13, 3,
+                Material.DIAMOND_SWORD,
+                "ᴛʜʀᴇᴇ ᴠs ᴛʜʀᴇᴇ"
+        );
 
-        setMode(player, inventory, 14, 4,
-                Material.NETHERITE_SWORD, "Squads");
+        setMode(
+                inventory, 14, 4,
+                Material.NETHERITE_SWORD,
+                "ғᴏᴜʀ ᴠs ғᴏᴜʀ"
+        );
 
-        setMode(player, inventory, 15, 5,
-                Material.BOW, "Full Team");
+        setMode(
+                inventory, 15, 5,
+                Material.BOW,
+                "ғɪᴠᴇ ᴠs ғɪᴠᴇ"
+        );
 
         inventory.setItem(18, createItem(
-                Material.GOLD_INGOT,
-                "§6§lStatistics",
+                Material.PLAYER_HEAD,
+                "§b§lᴘʟᴀʏᴇʀ sᴛᴀᴛs",
                 List.of(
-                        "§7View your duel statistics.",
-                        "§eClick to view!"
+                        "§7ᴠɪᴇᴡ ʏᴏᴜʀ ᴅᴜᴇʟ ʀᴇᴄᴏʀᴅ",
+                        "",
+                        "§eᴄʟɪᴄᴋ ᴛᴏ ᴠɪᴇᴡ"
                 )
         ));
 
@@ -211,35 +250,39 @@ public final class DuelMenu implements Listener {
         if (queuedMode == null) {
             inventory.setItem(22, createItem(
                     Material.GRAY_DYE,
-                    "§7§lQueue Status",
+                    "§7§lǫᴜᴇᴜᴇ sᴛᴀᴛᴜs",
                     List.of(
-                            "§7You are not currently queued."
+                            "§7ʏᴏᴜ ᴀʀᴇ ɴᴏᴛ ǫᴜᴇᴜᴇᴅ",
+                            "",
+                            "§8sᴇʟᴇᴄᴛ ᴀ ᴍᴏᴅᴇ ᴛᴏ ᴘʟᴀʏ"
                     )
             ));
         } else {
             inventory.setItem(22, createItem(
                     Material.LIME_DYE,
-                    "§a§lQueue Status",
+                    "§b§lǫᴜᴇᴜᴇ sᴛᴀᴛᴜs",
                     List.of(
-                            "§7Mode: §f" + queuedMode + "v" + queuedMode,
-                            "§7Players: §f"
+                            "§7ᴍᴏᴅᴇ: §f"
+                                    + queuedMode + "ᴠ" + queuedMode,
+                            "§7ᴘʟᴀʏᴇʀs: §f"
                                     + matchmaking.getQueueSize(queuedMode)
                                     + "/" + (queuedMode * 2),
                             "",
-                            "§eClick to leave your queue."
+                            "§eᴄʟɪᴄᴋ ᴛᴏ ʟᴇᴀᴠᴇ ǫᴜᴇᴜᴇ"
                     )
             ));
         }
 
         inventory.setItem(26, createItem(
                 Material.BARRIER,
-                "§c§lClose Menu",
-                List.of("§7Click to close the menu.")
+                "§c§lᴄʟᴏsᴇ",
+                List.of(
+                        "§7ᴄʟᴏsᴇ ᴛʜɪs ᴍᴇɴᴜ"
+                )
         ));
     }
 
     private void setMode(
-            Player player,
             Inventory inventory,
             int slot,
             int teamSize,
@@ -251,14 +294,15 @@ public final class DuelMenu implements Listener {
 
         inventory.setItem(slot, createItem(
                 material,
-                "§5§l" + teamSize + "v" + teamSize,
+                "§b§l" + teamSize + "ᴠ" + teamSize,
                 List.of(
                         "§7" + description,
-                        "§7Players required: §f" + required,
-                        "§7Currently queued: §a"
+                        "",
+                        "§7ᴘʟᴀʏᴇʀs ʀᴇǫᴜɪʀᴇᴅ: §f" + required,
+                        "§7ᴄᴜʀʀᴇɴᴛ ǫᴜᴇᴜᴇ: §b"
                                 + queued + "§7/" + required,
                         "",
-                        "§eClick to join queue!"
+                        "§eᴄʟɪᴄᴋ ᴛᴏ ᴊᴏɪɴ"
                 )
         ));
     }
@@ -342,11 +386,11 @@ public final class DuelMenu implements Listener {
         if (slot == 22) {
             if (matchmaking.leaveQueue(player.getUniqueId())) {
                 player.sendMessage(
-                        "§5[OblivionDuels] §aYou left the queue."
+                        PREFIX + "§bʏᴏᴜ ʟᴇғᴛ ᴛʜᴇ ǫᴜᴇᴜᴇ."
                 );
             } else {
                 player.sendMessage(
-                        "§5[OblivionDuels] §cYou are not in a queue."
+                        PREFIX + "§cʏᴏᴜ ᴀʀᴇ ɴᴏᴛ ɪɴ ᴀ ǫᴜᴇᴜᴇ."
                 );
             }
 
