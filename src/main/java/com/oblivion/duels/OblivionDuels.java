@@ -31,6 +31,7 @@ public final class OblivionDuels extends JavaPlugin
 
     private ArenaSelection arenaSelection;
     private ArenaManager arenaManager;
+    private ArenaRollbackManager rollbackManager;
     private DuelMenu duelMenu;
 
     private StatsManager statsManager;
@@ -66,6 +67,8 @@ public final class OblivionDuels extends JavaPlugin
         arenaSelection = new ArenaSelection(this);
         arenaManager = new ArenaManager(this);
 
+        rollbackManager = new ArenaRollbackManager(this);
+
         matchDeathListener = new MatchDeathListener(
                 this,
                 matchManager,
@@ -80,7 +83,8 @@ public final class OblivionDuels extends JavaPlugin
                 this,
                 matchmaking,
                 matchManager,
-                arenaManager
+                arenaManager,
+                rollbackManager
         );
 
         matchmakingCoordinator.start();
@@ -167,6 +171,10 @@ public final class OblivionDuels extends JavaPlugin
 
     public ArenaManager getArenaManager() {
         return arenaManager;
+    }
+
+    public ArenaRollbackManager getRollbackManager() {
+        return rollbackManager;
     }
 
     public ArenaSelection getArenaSelection() {
