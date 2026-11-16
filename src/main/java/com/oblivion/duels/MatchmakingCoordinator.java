@@ -118,8 +118,9 @@ public final class MatchmakingCoordinator {
                 return;
             }
 
+            // Wait for the next scheduled check if reservation fails.
             if (!arenaManager.reserveArena(arena.getName())) {
-                continue;
+                return;
             }
 
             DuelMatch match = null;
