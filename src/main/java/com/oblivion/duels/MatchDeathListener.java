@@ -692,36 +692,33 @@ public final class MatchDeathListener implements Listener {
         BukkitTask task = disconnectTasks.remove(playerId);
 
         if (task != null) {
-
             task.cancel();
+        }
 
-            DuelMatch match =
-                    matchManager.getMatchForPlayer(playerId);
+        boolean wasEliminatedWhileDisconnected =
+                eliminatedDisconnectedPlayers.remove(playerId);
 
-            if (match != null
-                    && match.getState() == DuelMatch.MatchState.ACTIVE
-                    && match.isAlive(playerId)) {
+        DuelMatch match =
+                matchManager.getMatchForPlayer(playerId);
+
+        if (match != null
+                && match.getState() == DuelMatch.MatchState.ACTIVE) {
+
+            if (match.isAlive(playerId)) {
 
                 disconnectedInventories.remove(playerId);
 
-                broadcast(
-                        match,
-                        ChatColor.GREEN + player.getName()
-                                + " reconnected!"
-                );
-            }
-        }
+                if (task != null) {
+                    broadcast(
+                            match,
+                            ChatColor.GREEN + player.getName()
+                                    + " reconnected!"
+                    );
+                }
 
-        if (eliminatedDisconnectedPlayers.remove(playerId)) {
+            } else {
 
-            clearInventory(player);
-
-            DuelMatch currentMatch =
-                    matchManager.getMatchForPlayer(playerId);
-
-            if (currentMatch != null
-                    && currentMatch.getState()
-                    == DuelMatch.MatchState.ACTIVE) {
+                clearInventory(player);
 
                 Location spectatorSpawn =
                         spectatorSpawns.get(playerId);
@@ -732,11 +729,13 @@ public final class MatchDeathListener implements Listener {
                     player.teleport(spectatorSpawn);
                     player.setGameMode(GameMode.SPECTATOR);
                 }
-
-            } else {
-
-                restorePlayerAfterMatch(player, playerId);
             }
+
+        } else if (wasEliminatedWhileDisconnected
+                || exitSpawns.containsKey(playerId)) {
+
+            clearInventory(player);
+            restorePlayerAfterMatch(player, playerId);
         }
 
         disconnectedInventories.remove(playerId);
@@ -752,6 +751,7 @@ public final class MatchDeathListener implements Listener {
         Location exitSpawn = exitSpawns.remove(playerId);
 
         spectatorSpawns.remove(playerId);
+        eliminatedDisconnectedPlayers.remove(playerId);
 
         player.setGameMode(GameMode.SURVIVAL);
 
