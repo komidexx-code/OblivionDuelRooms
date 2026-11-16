@@ -294,6 +294,9 @@ public final class OblivionDuels extends JavaPlugin
 
         sender.sendMessage(ChatColor.GRAY
                 + "/duels arena save");
+
+        sender.sendMessage(ChatColor.GRAY
+                + "/duels setexit <arena>");
     }
 
     @Override
@@ -328,6 +331,9 @@ public final class OblivionDuels extends JavaPlugin
                     + "/duels arena");
 
             sender.sendMessage(ChatColor.GRAY
+                    + "/duels setexit <arena>");
+
+            sender.sendMessage(ChatColor.GRAY
                     + "/duels reload");
 
             return true;
@@ -344,6 +350,42 @@ public final class OblivionDuels extends JavaPlugin
                 }
 
                 duelMenu.openMenu(player);
+                return true;
+            }
+
+            case "setexit": {
+                if (!isAdmin(sender)) {
+                    sender.sendMessage(prefix + ChatColor.RED
+                            + "You don't have permission.");
+                    return true;
+                }
+
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage("Players only.");
+                    return true;
+                }
+
+                if (args.length < 2) {
+                    player.sendMessage(prefix + ChatColor.RED
+                            + "Usage: /duels setexit <arena>");
+                    return true;
+                }
+
+                DuelArena arena = arenaManager.getArena(args[1]);
+
+                if (arena == null) {
+                    player.sendMessage(prefix + ChatColor.RED
+                            + "Arena not found: " + args[1]);
+                    return true;
+                }
+
+                arena.setExitSpawn(player.getLocation());
+                arenaManager.saveArena(arena);
+
+                player.sendMessage(prefix + ChatColor.GREEN
+                        + "Exit spawn saved for arena "
+                        + arena.getName() + "!");
+
                 return true;
             }
 
