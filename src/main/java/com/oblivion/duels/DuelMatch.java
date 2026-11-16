@@ -35,6 +35,9 @@ public final class DuelMatch {
 
     private MatchState state = MatchState.WAITING;
 
+    private int teamAScore = 0;
+    private int teamBScore = 0;
+
     public DuelMatch(
             int teamSize,
             List<UUID> teamA,
@@ -96,6 +99,35 @@ public final class DuelMatch {
 
     public List<UUID> getTeamB() {
         return teamB;
+    }
+
+    public int getTeamAScore() {
+        return teamAScore;
+    }
+
+    public int getTeamBScore() {
+        return teamBScore;
+    }
+
+    public void addPointToTeamA() {
+        teamAScore++;
+    }
+
+    public void addPointToTeamB() {
+        teamBScore++;
+    }
+
+    public void awardPointToOpposingTeam(UUID eliminatedPlayer) {
+
+        if (eliminatedPlayer == null) {
+            return;
+        }
+
+        if (teamA.contains(eliminatedPlayer)) {
+            addPointToTeamB();
+        } else if (teamB.contains(eliminatedPlayer)) {
+            addPointToTeamA();
+        }
     }
 
     public MatchState getState() {
