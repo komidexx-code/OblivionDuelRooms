@@ -138,25 +138,8 @@ public final class DuelArena {
     }
 
     public boolean hasValidBounds() {
-        if (!sameWorld(corner1) || !sameWorld(corner2)) {
-            return false;
-        }
-
-        double width = Math.abs(
-                corner1.getX() - corner2.getX()
-        );
-
-        double height = Math.abs(
-                corner1.getY() - corner2.getY()
-        );
-
-        double depth = Math.abs(
-                corner1.getZ() - corner2.getZ()
-        );
-
-        return width > 0
-                && height > 0
-                && depth > 0;
+        return sameWorld(corner1)
+                && sameWorld(corner2);
     }
 
     public boolean isReady() {
