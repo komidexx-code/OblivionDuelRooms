@@ -55,26 +55,21 @@ public final class DuelMatch {
         }
 
         Set<UUID> allPlayers = new LinkedHashSet<>();
-        allPlayers.addAll(teamA);
 
-        if (allPlayers.size() != teamA.size()) {
-            throw new IllegalArgumentException(
-                    "Duplicate player in Team A."
-            );
+        for (UUID player : teamA) {
+            if (player == null || !allPlayers.add(player)) {
+                throw new IllegalArgumentException(
+                        "Duplicate or invalid player in Team A."
+                );
+            }
         }
 
         for (UUID player : teamB) {
             if (player == null || !allPlayers.add(player)) {
                 throw new IllegalArgumentException(
-                        "Duplicate or invalid player."
+                        "Duplicate or invalid player in Team B."
                 );
             }
-        }
-
-        if (teamA.contains(null)) {
-            throw new IllegalArgumentException(
-                    "Invalid player in Team A."
-            );
         }
 
         this.matchId = UUID.randomUUID();
@@ -107,27 +102,72 @@ public final class DuelMatch {
         return state;
     }
 
-    public void setState(MatchState state) {
-        if (state == null) {
+    public void setState(MatchState newState) {
+
+        if (newState == null) {
             throw new IllegalArgumentException(
                     "Match state cannot be null."
             );
         }
 
-        this.state = state;
+        if (state == MatchState.ENDED) {
+            return;
+        }
+
+        if (state == MatchState.ENDING
+                && newState != MatchState.ENDED) {
+            return;
+        }
+
+        boolean validTransition =
+                switch (state) {
+                    case WAITING ->
+                            newState == MatchState.COUNTDOWN
+                                    || newState == MatchState.ENDING
+                                    || newState == MatchState.ENDED;
+
+                    case COUNTDOWN ->
+                            newState == MatchState.ACTIVE
+                                    || newState == MatchState.ENDING
+                                    || newState == MatchState.ENDED;
+
+                    case ACTIVE ->
+                            newState == MatchState.ENDING
+                                    || newState == MatchState.ENDED;
+
+                    case ENDING ->
+                            newState == MatchState.ENDED;
+
+                    case ENDED -> false;
+                };
+
+        if (validTransition) {
+            state = newState;
+        }
     }
 
     public boolean contains(UUID playerId) {
-        return teamA.contains(playerId)
-                || teamB.contains(playerId);
+        return playerId != null
+                && (teamA.contains(playerId)
+                || teamB.contains(playerId));
     }
 
     public boolean isOnSameTeam(UUID first, UUID second) {
+
+        if (first == null || second == null) {
+            return false;
+        }
+
         return (teamA.contains(first) && teamA.contains(second))
                 || (teamB.contains(first) && teamB.contains(second));
     }
 
     public List<UUID> getOpponents(UUID playerId) {
+
+        if (playerId == null) {
+            return List.of();
+        }
+
         if (teamA.contains(playerId)) {
             return teamB;
         }
@@ -140,10 +180,12 @@ public final class DuelMatch {
     }
 
     public boolean isAlive(UUID playerId) {
-        return alivePlayers.contains(playerId);
+        return playerId != null
+                && alivePlayers.contains(playerId);
     }
 
     public boolean eliminatePlayer(UUID playerId) {
+
         if (!contains(playerId)) {
             return false;
         }
@@ -156,6 +198,7 @@ public final class DuelMatch {
     }
 
     public int getAliveCount(WinningTeam team) {
+
         if (team == WinningTeam.TEAM_A) {
             return countAlive(teamA);
         }
@@ -168,6 +211,7 @@ public final class DuelMatch {
     }
 
     private int countAlive(List<UUID> team) {
+
         int count = 0;
 
         for (UUID player : team) {
@@ -184,13 +228,12 @@ public final class DuelMatch {
     }
 
     public WinningTeam getWinner() {
-        boolean teamAAlive = getAliveCount(
-                WinningTeam.TEAM_A
-        ) > 0;
 
-        boolean teamBAlive = getAliveCount(
-                WinningTeam.TEAM_B
-        ) > 0;
+        boolean teamAAlive =
+                getAliveCount(WinningTeam.TEAM_A) > 0;
+
+        boolean teamBAlive =
+                getAliveCount(WinningTeam.TEAM_B) > 0;
 
         if (teamAAlive && teamBAlive) {
             return WinningTeam.NONE;
