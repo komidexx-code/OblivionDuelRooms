@@ -92,11 +92,22 @@ public final class MatchProtectionListener implements Listener {
                         attacker.getUniqueId()
                 );
 
+        // Players outside a match cannot attack match participants.
         if (victimMatch != null && attackerMatch == null) {
+
+            // Allow environmental explosions during active matches.
+            if (isExplosion(event)
+                    && victimMatch.getState()
+                    == DuelMatch.MatchState.ACTIVE
+                    && victimMatch.isAlive(victim.getUniqueId())) {
+                return;
+            }
+
             event.setCancelled(true);
             return;
         }
 
+        // Match participants cannot attack players outside their match.
         if (victimMatch == null && attackerMatch != null) {
             event.setCancelled(true);
             return;
@@ -104,6 +115,7 @@ public final class MatchProtectionListener implements Listener {
 
         if (victimMatch == null) return;
 
+        // Prevent attacks between different matches.
         if (victimMatch != attackerMatch) {
             event.setCancelled(true);
             return;
@@ -115,7 +127,13 @@ public final class MatchProtectionListener implements Listener {
             return;
         }
 
+        // Environmental explosions have no player attacker.
         if (attacker == null) {
+            if (isExplosion(event)
+                    && victimMatch.isAlive(victim.getUniqueId())) {
+                return;
+            }
+
             event.setCancelled(true);
             return;
         }
@@ -138,6 +156,14 @@ public final class MatchProtectionListener implements Listener {
                 event.setCancelled(true);
             }
         }
+    }
+
+    private boolean isExplosion(EntityDamageEvent event) {
+
+        return event.getCause()
+                == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION
+                || event.getCause()
+                == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION;
     }
 
     private Player getAttackingPlayer(Entity damager) {
