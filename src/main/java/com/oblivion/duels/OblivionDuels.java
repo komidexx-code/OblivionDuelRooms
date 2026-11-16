@@ -145,6 +145,10 @@ public final class OblivionDuels extends JavaPlugin
             matchDeathListener.shutdown();
         }
 
+        if (rollbackManager != null) {
+            rollbackManager.shutdown();
+        }
+
         if (arenaSelection != null) {
             arenaSelection.shutdown();
         }
