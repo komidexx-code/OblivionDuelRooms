@@ -3,11 +3,13 @@ package com.oblivion.duels;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.util.HashMap;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -19,6 +21,9 @@ public final class MatchPreparationManager {
     private final ArenaManager arenaManager;
 
     private final Map<UUID, BukkitTask> countdownTasks =
+            new HashMap<>();
+
+    private final Map<UUID, Map<UUID, Location>> originalLocations =
             new HashMap<>();
 
     public MatchPreparationManager(
@@ -33,11 +38,8 @@ public final class MatchPreparationManager {
 
     public boolean prepareMatch(DuelMatch match, DuelArena arena) {
 
-        if (match == null) {
-            return false;
-        }
-
-        if (match.getState() != DuelMatch.MatchState.WAITING) {
+        if (match == null
+                || match.getState() != DuelMatch.MatchState.WAITING) {
             return false;
         }
 
@@ -46,16 +48,14 @@ public final class MatchPreparationManager {
             return false;
         }
 
-        if (!arena.isReady()) {
-            abortMatch(match, arena, "Arena is not ready.");
+        if (!arena.isReady()
+                || arena.getTeamSize() != match.getTeamA().size()
+                || match.getTeamA().size() != match.getTeamB().size()) {
+            abortMatch(match, arena, "Arena is invalid for this match.");
             return false;
         }
 
-        if (arena.getTeamASpawn() == null
-                || arena.getTeamBSpawn() == null) {
-            abortMatch(match, arena, "Arena spawns are missing.");
-            return false;
-        }
+        Map<UUID, Location> savedLocations = new HashMap<>();
 
         for (UUID id : match.getTeamA()) {
             Player player = Bukkit.getPlayer(id);
@@ -64,6 +64,8 @@ public final class MatchPreparationManager {
                 abortMatch(match, arena, "A player disconnected.");
                 return false;
             }
+
+            savedLocations.put(id, player.getLocation().clone());
         }
 
         for (UUID id : match.getTeamB()) {
@@ -73,7 +75,11 @@ public final class MatchPreparationManager {
                 abortMatch(match, arena, "A player disconnected.");
                 return false;
             }
+
+            savedLocations.put(id, player.getLocation().clone());
         }
+
+        originalLocations.put(match.getMatchId(), savedLocations);
 
         for (UUID id : match.getTeamA()) {
             Player player = Bukkit.getPlayer(id);
@@ -110,7 +116,6 @@ public final class MatchPreparationManager {
             DuelMatch match,
             DuelArena arena
     ) {
-
         int seconds = Math.max(
                 1,
                 plugin.getConfig().getInt(
@@ -129,13 +134,8 @@ public final class MatchPreparationManager {
             public void run() {
 
                 if (match.getState()
-                        != DuelMatch.MatchState.COUNTDOWN) {
-                    cancel();
-                    countdownTasks.remove(matchId);
-                    return;
-                }
-
-                if (matchManager.getMatch(matchId) != match) {
+                        != DuelMatch.MatchState.COUNTDOWN
+                        || matchManager.getMatch(matchId) != match) {
                     cancel();
                     countdownTasks.remove(matchId);
                     return;
@@ -145,8 +145,6 @@ public final class MatchPreparationManager {
                     Player player = Bukkit.getPlayer(id);
 
                     if (player == null || !player.isOnline()) {
-                        cancel();
-                        countdownTasks.remove(matchId);
                         abortMatch(
                                 match,
                                 arena,
@@ -160,8 +158,6 @@ public final class MatchPreparationManager {
                     Player player = Bukkit.getPlayer(id);
 
                     if (player == null || !player.isOnline()) {
-                        cancel();
-                        countdownTasks.remove(matchId);
                         abortMatch(
                                 match,
                                 arena,
@@ -172,8 +168,9 @@ public final class MatchPreparationManager {
                 }
 
                 if (remaining <= 0) {
-
                     match.setState(DuelMatch.MatchState.ACTIVE);
+
+                    originalLocations.remove(matchId);
 
                     broadcast(
                             match,
@@ -214,7 +211,6 @@ public final class MatchPreparationManager {
             DuelMatch match,
             String message
     ) {
-
         for (UUID id : match.getTeamA()) {
             Player player = Bukkit.getPlayer(id);
 
@@ -237,12 +233,8 @@ public final class MatchPreparationManager {
             DuelArena arena,
             String reason
     ) {
-
-        if (match == null) {
-            return;
-        }
-
-        if (match.getState() == DuelMatch.MatchState.ENDING
+        if (match == null
+                || match.getState() == DuelMatch.MatchState.ENDING
                 || match.getState() == DuelMatch.MatchState.ENDED) {
             return;
         }
@@ -255,8 +247,21 @@ public final class MatchPreparationManager {
             task.cancel();
         }
 
-        match.setState(DuelMatch.MatchState.ENDED);
+        Map<UUID, Location> savedLocations =
+                originalLocations.remove(match.getMatchId());
 
+        if (savedLocations != null) {
+            for (Map.Entry<UUID, Location> entry
+                    : savedLocations.entrySet()) {
+                Player player = Bukkit.getPlayer(entry.getKey());
+
+                if (player != null && player.isOnline()) {
+                    player.teleport(entry.getValue());
+                }
+            }
+        }
+
+        match.setState(DuelMatch.MatchState.ENDED);
         matchManager.endMatch(match.getMatchId());
 
         if (arena != null) {
@@ -270,11 +275,22 @@ public final class MatchPreparationManager {
     }
 
     public void shutdown() {
-
         for (BukkitTask task : countdownTasks.values()) {
             task.cancel();
         }
 
         countdownTasks.clear();
+
+        for (UUID matchId : originalLocations.keySet()) {
+            DuelMatch match = matchManager.getMatch(matchId);
+
+            if (match != null
+                    && match.getState() == DuelMatch.MatchState.COUNTDOWN) {
+                match.setState(DuelMatch.MatchState.ENDED);
+                matchManager.endMatch(matchId);
+            }
+        }
+
+        originalLocations.clear();
     }
 }
