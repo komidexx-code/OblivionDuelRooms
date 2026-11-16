@@ -6,6 +6,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -175,6 +176,46 @@ public final class OblivionDuels extends JavaPlugin
         return sender.hasPermission("oblivionduels.admin");
     }
 
+    private void announceQueueJoin(
+            Player joiningPlayer,
+            int teamSize
+    ) {
+
+        int currentPlayers =
+                matchmaking.getQueueSize(teamSize);
+
+        int maximumPlayers = teamSize * 2;
+
+        String message = prefix
+                + ChatColor.LIGHT_PURPLE
+                + ChatColor.BOLD
+                + joiningPlayer.getName()
+                + ChatColor.RESET
+                + ChatColor.GRAY
+                + " joined the "
+                + ChatColor.YELLOW
+                + teamSize + "v" + teamSize
+                + ChatColor.GRAY
+                + " queue! "
+                + ChatColor.DARK_GRAY
+                + "("
+                + ChatColor.WHITE
+                + currentPlayers + "/" + maximumPlayers
+                + ChatColor.DARK_GRAY
+                + ")";
+
+        Bukkit.broadcastMessage(message);
+
+        for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+            onlinePlayer.playSound(
+                    onlinePlayer.getLocation(),
+                    Sound.BLOCK_NOTE_BLOCK_PLING,
+                    0.8f,
+                    1.5f
+            );
+        }
+    }
+
     private void sendArenaHelp(CommandSender sender) {
         sender.sendMessage(prefix + ChatColor.YELLOW
                 + "Arena commands:");
@@ -284,7 +325,7 @@ public final class OblivionDuels extends JavaPlugin
                             name,
                             player.getWorld()
                     )) {
-                        sender.sendMessage(prefix + ChatColor.RED
+                        player.sendMessage(prefix + ChatColor.RED
                                 + "Could not create that arena.");
                         return true;
                     }
@@ -514,6 +555,8 @@ public final class OblivionDuels extends JavaPlugin
                         + "You joined the " + teamSize + "v" + teamSize
                         + " queue!");
 
+                announceQueueJoin(player, teamSize);
+
                 return true;
             }
 
@@ -690,3 +733,4 @@ public final class OblivionDuels extends JavaPlugin
         }
     }
 }
+ 
