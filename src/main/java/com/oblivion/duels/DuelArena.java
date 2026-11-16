@@ -5,11 +5,14 @@ import org.bukkit.Location;
 import org.bukkit.World;
 
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class DuelArena {
 
     private final String name;
     private final UUID worldId;
+    private final int teamSize;
 
     private Location corner1;
     private Location corner2;
@@ -33,6 +36,20 @@ public final class DuelArena {
 
         this.name = name;
         this.worldId = world.getUID();
+        this.teamSize = detectTeamSize(name);
+    }
+
+    private int detectTeamSize(String arenaName) {
+        Matcher matcher = Pattern.compile(
+                "^(1|2|3|4|5)v\\1(?:[-_ ]|$)",
+                Pattern.CASE_INSENSITIVE
+        ).matcher(arenaName);
+
+        if (!matcher.find()) {
+            return 0;
+        }
+
+        return Integer.parseInt(matcher.group(1));
     }
 
     public String getName() {
@@ -41,6 +58,10 @@ public final class DuelArena {
 
     public UUID getWorldId() {
         return worldId;
+    }
+
+    public int getTeamSize() {
+        return teamSize;
     }
 
     public Location getCorner1() {
