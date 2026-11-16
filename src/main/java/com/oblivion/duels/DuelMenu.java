@@ -143,7 +143,11 @@ public final class DuelMenu implements Listener {
                 Material.EXPERIENCE_BOTTLE,
                 "§d§lWin Rate",
                 List.of("§7Win rate: §d"
-                        + String.format("%.2f%%", stats.getWinRate()))
+                        + String.format(
+                                java.util.Locale.US,
+                                "%.2f%%",
+                                stats.getWinRate()
+                        ))
         ));
 
         inventory.setItem(22, createItem(
@@ -363,21 +367,7 @@ public final class DuelMenu implements Listener {
             return;
         }
 
-        boolean joined = matchmaking.joinQueue(
-                player.getUniqueId(),
-                teamSize
-        );
-
-        if (joined) {
-            player.sendMessage(
-                    "§5[OblivionDuels] §aYou joined the "
-                            + teamSize + "v" + teamSize + " queue!"
-            );
-        } else {
-            player.sendMessage(
-                    "§5[OblivionDuels] §cYou are already in a queue."
-            );
-        }
+        plugin.joinQueue(player, teamSize);
 
         updateMenu(player, top);
     }
