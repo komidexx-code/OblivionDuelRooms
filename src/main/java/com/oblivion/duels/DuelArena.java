@@ -26,6 +26,7 @@ public final class DuelArena {
     private Location teamASpawn;
     private Location teamBSpawn;
     private Location spectatorSpawn;
+    private Location exitSpawn;
 
     public DuelArena(String name, World world) {
         if (name == null || name.isBlank()) {
@@ -88,6 +89,10 @@ public final class DuelArena {
         return cloneLocation(spectatorSpawn);
     }
 
+    public Location getExitSpawn() {
+        return cloneLocation(exitSpawn);
+    }
+
     public void setCorner1(Location location) {
         this.corner1 = cloneLocation(location);
     }
@@ -106,6 +111,10 @@ public final class DuelArena {
 
     public void setSpectatorSpawn(Location location) {
         this.spectatorSpawn = cloneLocation(location);
+    }
+
+    public void setExitSpawn(Location location) {
+        this.exitSpawn = cloneLocation(location);
     }
 
     private Location cloneLocation(Location location) {
