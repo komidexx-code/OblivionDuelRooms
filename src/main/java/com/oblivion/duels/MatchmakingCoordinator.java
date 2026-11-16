@@ -38,6 +38,7 @@ public final class MatchmakingCoordinator {
     }
 
     public void start() {
+
         if (task != null) {
             return;
         }
@@ -51,6 +52,7 @@ public final class MatchmakingCoordinator {
     }
 
     public void stop() {
+
         if (task != null) {
             task.cancel();
             task = null;
@@ -60,8 +62,25 @@ public final class MatchmakingCoordinator {
     }
 
     private void processQueues() {
+
         for (int teamSize = 1; teamSize <= 5; teamSize++) {
-            processQueue(teamSize);
+
+            try {
+                processQueue(teamSize);
+
+            } catch (RuntimeException exception) {
+
+                plugin.getLogger().severe(
+                        "Error processing the "
+                                + teamSize
+                                + "v"
+                                + teamSize
+                                + " queue: "
+                                + exception.getMessage()
+                );
+
+                exception.printStackTrace();
+            }
         }
     }
 
@@ -72,16 +91,18 @@ public final class MatchmakingCoordinator {
             List<UUID> players =
                     matchmaking.peekPlayersForMatch(teamSize);
 
-            if (players.isEmpty()) {
+            if (players == null || players.isEmpty()) {
                 return;
             }
 
             boolean invalidPlayerFound = false;
 
             for (UUID playerId : players) {
+
                 Player player = Bukkit.getPlayer(playerId);
 
-                if (player == null || !player.isOnline()
+                if (player == null
+                        || !player.isOnline()
                         || matchManager.isInMatch(playerId)) {
 
                     matchmaking.leaveQueue(playerId);
@@ -100,8 +121,10 @@ public final class MatchmakingCoordinator {
             }
 
             if (!arena.isReady()) {
+
                 plugin.getLogger().warning(
-                        "Arena " + arena.getName()
+                        "Arena "
+                                + arena.getName()
                                 + " is not ready and cannot be used."
                 );
 
@@ -112,52 +135,82 @@ public final class MatchmakingCoordinator {
                 return;
             }
 
-            DuelMatch match;
+            DuelMatch match = null;
 
             try {
+
                 match = matchManager.createMatch(
                         teamSize,
                         players,
                         arena.getName()
                 );
 
-            } catch (Exception exception) {
+                if (match == null) {
+                    throw new IllegalStateException(
+                            "MatchManager returned null."
+                    );
+                }
+
+                if (!matchmaking.removePlayersForMatch(
+                        teamSize,
+                        players
+                )) {
+
+                    match.setState(
+                            DuelMatch.MatchState.ENDED
+                    );
+
+                    matchManager.endMatch(match.getMatchId());
+                    arenaManager.releaseArena(arena.getName());
+
+                    plugin.getLogger().warning(
+                            "Match preparation cancelled because "
+                                    + "players could not be removed "
+                                    + "from the queue."
+                    );
+
+                    return;
+                }
+
+                boolean prepared =
+                        preparationManager.prepareMatch(
+                                match,
+                                arena
+                        );
+
+                if (!prepared) {
+
+                    plugin.getLogger().warning(
+                            "Could not prepare match "
+                                    + match.getMatchId()
+                    );
+                }
+
+            } catch (RuntimeException exception) {
+
+                if (match != null) {
+
+                    if (match.getState()
+                            != DuelMatch.MatchState.ENDED) {
+
+                        match.setState(
+                                DuelMatch.MatchState.ENDED
+                        );
+                    }
+
+                    matchManager.endMatch(match.getMatchId());
+                }
 
                 arenaManager.releaseArena(arena.getName());
 
                 plugin.getLogger().severe(
-                        "Could not create duel match: "
+                        "Could not create or prepare duel match: "
                                 + exception.getMessage()
                 );
 
-                return;
-            }
-
-            if (!matchmaking.removePlayersForMatch(
-                    teamSize, players
-            )) {
-
-                matchManager.endMatch(match.getMatchId());
-                arenaManager.releaseArena(arena.getName());
-
-                plugin.getLogger().warning(
-                        "Match preparation was cancelled because "
-                                + "players could not be removed from the queue."
-                );
+                exception.printStackTrace();
 
                 return;
-            }
-
-            boolean prepared = preparationManager.prepareMatch(
-                    match,
-                    arena
-            );
-
-            if (!prepared) {
-                plugin.getLogger().warning(
-                        "Could not prepare match "
-                                + match.getMatchId()
-                );
             }
         }
     }
