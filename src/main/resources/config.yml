@@ -1,6 +1,6 @@
 
 settings:
-  prefix: "&8[&5OblivionDuels&8] "
+  prefix: "&8[&bᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs&8] "
   debug: false
 
 matchmaking:
@@ -41,14 +41,14 @@ match-hud:
 
   scoreboard:
     enabled: true
-    title: "&5&lOBLIVION DUELS"
-    team-a-name: "&e&lTEAM A"
-    team-b-name: "&b&lTEAM B"
+    title: "&b&lᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs"
+    team-a-name: "&b&lᴛᴇᴀᴍ ᴀ"
+    team-b-name: "&3&lᴛᴇᴀᴍ ʙ"
 
   timer:
     enabled: true
-    title: "&5&lMATCH TIME"
-    color: PURPLE
+    title: "&b&lᴍᴀᴛᴄʜ ᴛɪᴍᴇ"
+    color: BLUE
 
   score-sound:
     enabled: true
