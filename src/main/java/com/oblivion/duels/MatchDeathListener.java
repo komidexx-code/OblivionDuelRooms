@@ -35,6 +35,12 @@ public final class MatchDeathListener implements Listener {
     private final Map<UUID, List<ItemStack>> pendingLoot =
             new HashMap<>();
 
+    private final Map<UUID, List<ItemStack>> disconnectedInventories =
+            new HashMap<>();
+
+    private final Set<UUID> eliminatedDisconnectedPlayers =
+            new HashSet<>();
+
     private final Map<UUID, BukkitTask> disconnectTasks =
             new HashMap<>();
 
@@ -59,7 +65,8 @@ public final class MatchDeathListener implements Listener {
 
     public void startMatchTimeout(DuelMatch match) {
 
-        if (match == null) {
+        if (match == null
+                || match.getState() != DuelMatch.MatchState.ACTIVE) {
             return;
         }
 
@@ -82,6 +89,7 @@ public final class MatchDeathListener implements Listener {
         BukkitTask task = Bukkit.getScheduler().runTaskLater(
                 plugin,
                 () -> {
+
                     timeoutTasks.remove(matchId);
 
                     if (match.getState()
@@ -111,6 +119,7 @@ public final class MatchDeathListener implements Listener {
                             matchManager.getArenaForMatch(matchId);
 
                     if (winner == DuelMatch.WinningTeam.DRAW) {
+
                         finishMatch(
                                 match,
                                 arenaName,
@@ -118,7 +127,9 @@ public final class MatchDeathListener implements Listener {
                                         + "Match timed out! It ended in a draw.",
                                 winner
                         );
+
                     } else {
+
                         String winningTeam =
                                 winner == DuelMatch.WinningTeam.TEAM_A
                                         ? "Team A" : "Team B";
@@ -143,19 +154,20 @@ public final class MatchDeathListener implements Listener {
     public void onPlayerDeath(PlayerDeathEvent event) {
 
         Player player = event.getEntity();
+        UUID playerId = player.getUniqueId();
 
-        DuelMatch match = matchManager.getMatchForPlayer(
-                player.getUniqueId()
-        );
+        DuelMatch match =
+                matchManager.getMatchForPlayer(playerId);
 
         if (match == null
-                || match.getState() != DuelMatch.MatchState.ACTIVE) {
+                || match.getState() != DuelMatch.MatchState.ACTIVE
+                || !match.isAlive(playerId)) {
             return;
         }
 
-        UUID playerId = player.getUniqueId();
-
         cancelDisconnectTask(playerId);
+        disconnectedInventories.remove(playerId);
+
         saveInventory(match, player);
 
         event.setKeepInventory(false);
@@ -169,9 +181,11 @@ public final class MatchDeathListener implements Listener {
         Player killer = player.getKiller();
 
         if (killer != null) {
+
             UUID killerId = killer.getUniqueId();
 
             if (match.contains(killerId)
+                    && match.isAlive(killerId)
                     && !match.isOnSameTeam(killerId, playerId)) {
 
                 statsManager.addKill(killerId);
@@ -183,9 +197,12 @@ public final class MatchDeathListener implements Listener {
                 matchManager.getArenaForMatch(match.getMatchId());
 
         if (arenaName != null) {
+
             DuelArena arena = arenaManager.getArena(arenaName);
 
-            if (arena != null && arena.getSpectatorSpawn() != null) {
+            if (arena != null
+                    && arena.getSpectatorSpawn() != null) {
+
                 spectatorSpawns.put(
                         playerId,
                         arena.getSpectatorSpawn()
@@ -193,11 +210,15 @@ public final class MatchDeathListener implements Listener {
             }
         }
 
-        match.eliminatePlayer(playerId);
+        if (!match.eliminatePlayer(playerId)) {
+            return;
+        }
 
-        broadcast(match,
+        broadcast(
+                match,
                 ChatColor.RED + player.getName()
-                        + " has been eliminated!");
+                        + " has been eliminated!"
+        );
 
         checkMatchWinner(match, arenaName);
     }
@@ -206,20 +227,23 @@ public final class MatchDeathListener implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
 
         Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
 
-        DuelMatch match = matchManager.getMatchForPlayer(
-                player.getUniqueId()
-        );
+        DuelMatch match =
+                matchManager.getMatchForPlayer(playerId);
 
         if (match == null
                 || match.getState() != DuelMatch.MatchState.ACTIVE
-                || !match.isAlive(player.getUniqueId())) {
+                || !match.isAlive(playerId)) {
             return;
         }
 
-        UUID playerId = player.getUniqueId();
-
         cancelDisconnectTask(playerId);
+
+        disconnectedInventories.put(
+                playerId,
+                snapshotInventory(player)
+        );
 
         int graceSeconds = Math.max(
                 1,
@@ -229,10 +253,12 @@ public final class MatchDeathListener implements Listener {
                 )
         );
 
-        broadcast(match,
+        broadcast(
+                match,
                 ChatColor.YELLOW + player.getName()
                         + " disconnected! They have "
-                        + graceSeconds + " seconds to reconnect.");
+                        + graceSeconds + " seconds to reconnect."
+        );
 
         BukkitTask task = Bukkit.getScheduler().runTaskLater(
                 plugin,
@@ -253,14 +279,31 @@ public final class MatchDeathListener implements Listener {
                         return;
                     }
 
-                    match.eliminatePlayer(playerId);
+                    List<ItemStack> inventory =
+                            disconnectedInventories.remove(playerId);
+
+                    if (inventory != null && !inventory.isEmpty()) {
+
+                        matchLoot.computeIfAbsent(
+                                match.getMatchId(),
+                                key -> new HashMap<>()
+                        ).put(playerId, inventory);
+                    }
+
+                    eliminatedDisconnectedPlayers.add(playerId);
+
+                    if (!match.eliminatePlayer(playerId)) {
+                        return;
+                    }
 
                     statsManager.addDeath(playerId);
                     saveStats(playerId);
 
-                    broadcast(match,
+                    broadcast(
+                            match,
                             ChatColor.RED
-                                    + "A disconnected player was eliminated!");
+                                    + "A disconnected player was eliminated!"
+                    );
 
                     String arenaName =
                             matchManager.getArenaForMatch(
@@ -279,13 +322,20 @@ public final class MatchDeathListener implements Listener {
             DuelMatch match,
             String arenaName
     ) {
+
+        if (match.getState() != DuelMatch.MatchState.ACTIVE) {
+            return;
+        }
+
         if (match.getAliveCount() == 0) {
+
             finishMatch(
                     match,
                     arenaName,
                     "The match ended in a draw.",
                     DuelMatch.WinningTeam.DRAW
             );
+
             return;
         }
 
@@ -294,9 +344,9 @@ public final class MatchDeathListener implements Listener {
         if (winner == DuelMatch.WinningTeam.TEAM_A
                 || winner == DuelMatch.WinningTeam.TEAM_B) {
 
-            String winningTeam = winner
-                    == DuelMatch.WinningTeam.TEAM_A
-                    ? "Team A" : "Team B";
+            String winningTeam =
+                    winner == DuelMatch.WinningTeam.TEAM_A
+                            ? "Team A" : "Team B";
 
             finishMatch(
                     match,
@@ -307,19 +357,31 @@ public final class MatchDeathListener implements Listener {
         }
     }
 
-    private void saveInventory(DuelMatch match, Player player) {
+    private List<ItemStack> snapshotInventory(Player player) {
 
         List<ItemStack> items = new ArrayList<>();
 
-        for (ItemStack item : player.getInventory().getStorageContents()) {
+        for (ItemStack item :
+                player.getInventory().getStorageContents()) {
             addCopy(items, item);
         }
 
-        for (ItemStack item : player.getInventory().getArmorContents()) {
+        for (ItemStack item :
+                player.getInventory().getArmorContents()) {
             addCopy(items, item);
         }
 
-        addCopy(items, player.getInventory().getItemInOffHand());
+        addCopy(
+                items,
+                player.getInventory().getItemInOffHand()
+        );
+
+        return items;
+    }
+
+    private void saveInventory(DuelMatch match, Player player) {
+
+        List<ItemStack> items = snapshotInventory(player);
 
         matchLoot.computeIfAbsent(
                 match.getMatchId(),
@@ -332,9 +394,17 @@ public final class MatchDeathListener implements Listener {
     }
 
     private void addCopy(List<ItemStack> items, ItemStack item) {
+
         if (item != null && !item.getType().isAir()) {
             items.add(item.clone());
         }
+    }
+
+    private void clearInventory(Player player) {
+
+        player.getInventory().clear();
+        player.getInventory().setArmorContents(new ItemStack[4]);
+        player.getInventory().setItemInOffHand(null);
     }
 
     private void finishMatch(
@@ -343,9 +413,20 @@ public final class MatchDeathListener implements Listener {
             String message,
             DuelMatch.WinningTeam winner
     ) {
+
+        if (match == null
+                || match.getState() == DuelMatch.MatchState.ENDING
+                || match.getState() == DuelMatch.MatchState.ENDED) {
+            return;
+        }
+
+        match.setState(DuelMatch.MatchState.ENDING);
+
         cancelDisconnectTasks(match);
 
-        BukkitTask timeout = timeoutTasks.remove(match.getMatchId());
+        BukkitTask timeout = timeoutTasks.remove(
+                match.getMatchId()
+        );
 
         if (timeout != null) {
             timeout.cancel();
@@ -393,6 +474,7 @@ public final class MatchDeathListener implements Listener {
             DuelMatch match,
             DuelMatch.WinningTeam winner
     ) {
+
         Map<UUID, List<ItemStack>> savedLoot =
                 matchLoot.remove(match.getMatchId());
 
@@ -405,7 +487,11 @@ public final class MatchDeathListener implements Listener {
 
             for (Map.Entry<UUID, List<ItemStack>> entry
                     : savedLoot.entrySet()) {
-                giveItems(entry.getKey(), entry.getValue());
+
+                giveItems(
+                        entry.getKey(),
+                        entry.getValue()
+                );
             }
 
             return;
@@ -424,25 +510,33 @@ public final class MatchDeathListener implements Listener {
         int recipientIndex = 0;
 
         for (List<ItemStack> items : savedLoot.values()) {
+
             UUID recipient = winners.get(
                     recipientIndex % winners.size()
             );
 
             giveItems(recipient, items);
+
             recipientIndex++;
         }
 
         for (UUID winnerId : winners) {
+
             Player player = Bukkit.getPlayer(winnerId);
 
             if (player != null) {
-                player.sendMessage(ChatColor.GOLD
-                        + "Your team has received the match loot!");
+                player.sendMessage(
+                        ChatColor.GOLD
+                                + "Your team has received the match loot!"
+                );
             }
         }
     }
 
-    private void giveItems(UUID playerId, List<ItemStack> items) {
+    private void giveItems(
+            UUID playerId,
+            List<ItemStack> items
+    ) {
 
         if (items == null || items.isEmpty()) {
             return;
@@ -463,13 +557,16 @@ public final class MatchDeathListener implements Listener {
                 );
 
         if (!leftovers.isEmpty()) {
+
             storePendingLoot(
                     playerId,
                     new ArrayList<>(leftovers.values())
             );
 
-            player.sendMessage(ChatColor.YELLOW
-                    + "Some loot is waiting because your inventory is full.");
+            player.sendMessage(
+                    ChatColor.YELLOW
+                            + "Some loot is waiting because your inventory is full."
+            );
         }
     }
 
@@ -477,12 +574,14 @@ public final class MatchDeathListener implements Listener {
             UUID playerId,
             List<ItemStack> items
     ) {
+
         List<ItemStack> stored = pendingLoot.computeIfAbsent(
                 playerId,
                 key -> new ArrayList<>()
         );
 
         for (ItemStack item : items) {
+
             if (item != null && !item.getType().isAir()) {
                 stored.add(item.clone());
             }
@@ -498,6 +597,7 @@ public final class MatchDeathListener implements Listener {
         BukkitTask task = disconnectTasks.remove(playerId);
 
         if (task != null) {
+
             task.cancel();
 
             DuelMatch match =
@@ -507,11 +607,21 @@ public final class MatchDeathListener implements Listener {
                     && match.getState() == DuelMatch.MatchState.ACTIVE
                     && match.isAlive(playerId)) {
 
-                broadcast(match,
+                disconnectedInventories.remove(playerId);
+
+                broadcast(
+                        match,
                         ChatColor.GREEN + player.getName()
-                                + " reconnected!");
+                                + " reconnected!"
+                );
             }
         }
+
+        if (eliminatedDisconnectedPlayers.remove(playerId)) {
+            clearInventory(player);
+        }
+
+        disconnectedInventories.remove(playerId);
 
         List<ItemStack> items = pendingLoot.remove(playerId);
 
@@ -527,13 +637,18 @@ public final class MatchDeathListener implements Listener {
                 );
 
         if (!leftovers.isEmpty()) {
+
             storePendingLoot(
                     playerId,
                     new ArrayList<>(leftovers.values())
             );
+
         } else {
-            player.sendMessage(ChatColor.GREEN
-                    + "Your waiting match loot has been delivered!");
+
+            player.sendMessage(
+                    ChatColor.GREEN
+                            + "Your waiting match loot has been delivered!"
+            );
         }
     }
 
@@ -541,12 +656,14 @@ public final class MatchDeathListener implements Listener {
             DuelMatch match,
             DuelMatch.WinningTeam winner
     ) {
+
         if (winner == DuelMatch.WinningTeam.DRAW
                 || winner == DuelMatch.WinningTeam.NONE) {
             return;
         }
 
         for (UUID playerId : match.getTeamA()) {
+
             if (winner == DuelMatch.WinningTeam.TEAM_A) {
                 statsManager.addWin(playerId);
             } else {
@@ -557,6 +674,7 @@ public final class MatchDeathListener implements Listener {
         }
 
         for (UUID playerId : match.getTeamB()) {
+
             if (winner == DuelMatch.WinningTeam.TEAM_B) {
                 statsManager.addWin(playerId);
             } else {
@@ -568,6 +686,7 @@ public final class MatchDeathListener implements Listener {
     }
 
     private void saveStats(UUID playerId) {
+
         databaseManager.saveStats(
                 playerId,
                 statsManager.getStats(playerId)
@@ -579,17 +698,23 @@ public final class MatchDeathListener implements Listener {
 
         UUID playerId = event.getPlayer().getUniqueId();
 
-        Location spectatorSpawn = spectatorSpawns.remove(playerId);
+        Location spectatorSpawn =
+                spectatorSpawns.remove(playerId);
 
         if (spectatorSpawn != null
                 && spectatorSpawn.getWorld() != null) {
+
             event.setRespawnLocation(spectatorSpawn);
         }
     }
 
-    private void broadcast(DuelMatch match, String message) {
+    private void broadcast(
+            DuelMatch match,
+            String message
+    ) {
 
         for (UUID playerId : match.getTeamA()) {
+
             Player player = Bukkit.getPlayer(playerId);
 
             if (player != null) {
@@ -602,6 +727,7 @@ public final class MatchDeathListener implements Listener {
         }
 
         for (UUID playerId : match.getTeamB()) {
+
             Player player = Bukkit.getPlayer(playerId);
 
             if (player != null) {
