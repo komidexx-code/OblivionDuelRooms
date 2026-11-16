@@ -84,7 +84,22 @@ public final class ArenaRollbackManager implements Listener {
 
     private void recordBlock(Block block) {
 
-        if (block == null || block.getWorld() == null || shuttingDown) {
+        if (block == null) {
+            return;
+        }
+
+        recordBlock(block, block.getState());
+    }
+
+    private void recordBlock(
+            Block block,
+            BlockState originalState
+    ) {
+
+        if (block == null
+                || originalState == null
+                || block.getWorld() == null
+                || shuttingDown) {
             return;
         }
 
@@ -111,7 +126,7 @@ public final class ArenaRollbackManager implements Listener {
             Location key = location.clone();
 
             if (tracked.add(key)) {
-                original.put(key, block.getState());
+                original.put(key, originalState);
             }
         }
     }
@@ -123,7 +138,13 @@ public final class ArenaRollbackManager implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockPlace(BlockPlaceEvent event) {
-        recordBlock(event.getBlock());
+
+        BlockState replacedState = event.getBlockReplacedState();
+
+        recordBlock(
+                event.getBlock(),
+                replacedState
+        );
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
