@@ -664,9 +664,11 @@ public final class OblivionDuels extends JavaPlugin
                 reloadConfig();
                 updatePrefix();
                 arenaManager.reloadArenas();
+                matchmakingCoordinator.reloadSettings();
 
                 sender.sendMessage(prefix + ChatColor.GREEN
-                        + "Configuration and arena data reloaded safely.");
+                        + "Configuration, matchmaking settings, "
+                        + "and arena data reloaded safely.");
 
                 return true;
             }
