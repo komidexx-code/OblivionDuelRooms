@@ -9,13 +9,17 @@ public final class MatchmakingManager {
             new HashMap<>();
 
     public MatchmakingManager() {
+
         for (int size = 1; size <= 5; size++) {
             queues.put(size, new LinkedHashSet<>());
         }
     }
 
     public boolean joinQueue(UUID playerId, int teamSize) {
-        if (playerId == null || teamSize < 1 || teamSize > 5) {
+
+        if (playerId == null
+                || teamSize < 1
+                || teamSize > 5) {
             return false;
         }
 
@@ -23,16 +27,17 @@ public final class MatchmakingManager {
             return false;
         }
 
-        queues.get(teamSize).add(playerId);
-        return true;
+        return queues.get(teamSize).add(playerId);
     }
 
     public boolean leaveQueue(UUID playerId) {
+
         if (playerId == null) {
             return false;
         }
 
         for (Set<UUID> queue : queues.values()) {
+
             if (queue.remove(playerId)) {
                 return true;
             }
@@ -42,6 +47,7 @@ public final class MatchmakingManager {
     }
 
     public Integer getQueuedMode(UUID playerId) {
+
         if (playerId == null) {
             return null;
         }
@@ -58,28 +64,34 @@ public final class MatchmakingManager {
     }
 
     public int getQueueSize(int teamSize) {
-        return queues.getOrDefault(
-                teamSize,
-                new LinkedHashSet<>()
-        ).size();
+
+        LinkedHashSet<UUID> queue = queues.get(teamSize);
+
+        return queue == null ? 0 : queue.size();
     }
 
-    // Checks whether enough players are waiting.
     public boolean isQueueFull(int teamSize) {
+
+        if (teamSize < 1 || teamSize > 5) {
+            return false;
+        }
+
         return getQueueSize(teamSize) >= teamSize * 2;
     }
 
-    // Returns the next available players without removing them.
     public List<UUID> peekPlayersForMatch(int teamSize) {
+
         LinkedHashSet<UUID> queue = queues.get(teamSize);
 
-        if (queue == null || queue.size() < teamSize * 2) {
+        if (queue == null
+                || queue.size() < teamSize * 2) {
             return Collections.emptyList();
         }
 
         List<UUID> players = new ArrayList<>();
 
         for (UUID player : queue) {
+
             players.add(player);
 
             if (players.size() == teamSize * 2) {
@@ -87,33 +99,44 @@ public final class MatchmakingManager {
             }
         }
 
-        return players;
+        return Collections.unmodifiableList(players);
     }
 
-    // Removes players only after a match has been successfully prepared.
     public boolean removePlayersForMatch(
             int teamSize,
             List<UUID> players
     ) {
-        LinkedHashSet<UUID> queue = queues.get(teamSize);
 
-        if (queue == null || players == null
+        if (teamSize < 1 || teamSize > 5
+                || players == null
                 || players.size() != teamSize * 2) {
             return false;
         }
 
-        if (!queue.containsAll(players)) {
+        LinkedHashSet<UUID> queue = queues.get(teamSize);
+
+        if (queue == null) {
             return false;
         }
 
-        for (UUID player : players) {
-            queue.remove(player);
+        Set<UUID> uniquePlayers = new HashSet<>(players);
+
+        if (uniquePlayers.size() != players.size()
+                || uniquePlayers.contains(null)) {
+            return false;
         }
+
+        if (!queue.containsAll(uniquePlayers)) {
+            return false;
+        }
+
+        queue.removeAll(uniquePlayers);
 
         return true;
     }
 
     public List<UUID> getPlayersForMatch(int teamSize) {
+
         List<UUID> players = peekPlayersForMatch(teamSize);
 
         if (players.isEmpty()) {
@@ -128,6 +151,7 @@ public final class MatchmakingManager {
     }
 
     public Map<Integer, Integer> getAllQueueSizes() {
+
         Map<Integer, Integer> result = new HashMap<>();
 
         for (int size = 1; size <= 5; size++) {
