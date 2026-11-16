@@ -38,7 +38,6 @@ public final class MatchmakingCoordinator {
     }
 
     public void start() {
-
         if (task != null) {
             return;
         }
@@ -52,7 +51,6 @@ public final class MatchmakingCoordinator {
     }
 
     public void stop() {
-
         if (task != null) {
             task.cancel();
             task = null;
@@ -62,21 +60,14 @@ public final class MatchmakingCoordinator {
     }
 
     private void processQueues() {
-
         for (int teamSize = 1; teamSize <= 5; teamSize++) {
-
             try {
                 processQueue(teamSize);
-
             } catch (RuntimeException exception) {
-
                 plugin.getLogger().severe(
                         "Error processing the "
-                                + teamSize
-                                + "v"
-                                + teamSize
-                                + " queue: "
-                                + exception.getMessage()
+                                + teamSize + "v" + teamSize
+                                + " queue: " + exception.getMessage()
                 );
 
                 exception.printStackTrace();
@@ -85,9 +76,7 @@ public final class MatchmakingCoordinator {
     }
 
     private void processQueue(int teamSize) {
-
         while (matchmaking.isQueueFull(teamSize)) {
-
             List<UUID> players =
                     matchmaking.peekPlayersForMatch(teamSize);
 
@@ -98,13 +87,11 @@ public final class MatchmakingCoordinator {
             boolean invalidPlayerFound = false;
 
             for (UUID playerId : players) {
-
                 Player player = Bukkit.getPlayer(playerId);
 
                 if (player == null
                         || !player.isOnline()
                         || matchManager.isInMatch(playerId)) {
-
                     matchmaking.leaveQueue(playerId);
                     invalidPlayerFound = true;
                 }
@@ -114,31 +101,30 @@ public final class MatchmakingCoordinator {
                 continue;
             }
 
-            DuelArena arena = arenaManager.getAvailableArena();
+            DuelArena arena =
+                    arenaManager.getAvailableArena(teamSize);
 
             if (arena == null) {
                 return;
             }
 
-            if (!arena.isReady()) {
-
+            if (!arena.isReady()
+                    || arena.getTeamSize() != teamSize) {
                 plugin.getLogger().warning(
-                        "Arena "
-                                + arena.getName()
-                                + " is not ready and cannot be used."
+                        "Arena " + arena.getName()
+                                + " is not valid for "
+                                + teamSize + "v" + teamSize + "."
                 );
-
                 return;
             }
 
             if (!arenaManager.reserveArena(arena.getName())) {
-                return;
+                continue;
             }
 
             DuelMatch match = null;
 
             try {
-
                 match = matchManager.createMatch(
                         teamSize,
                         players,
@@ -155,31 +141,21 @@ public final class MatchmakingCoordinator {
                         teamSize,
                         players
                 )) {
-
-                    match.setState(
-                            DuelMatch.MatchState.ENDED
-                    );
-
+                    match.setState(DuelMatch.MatchState.ENDED);
                     matchManager.endMatch(match.getMatchId());
                     arenaManager.releaseArena(arena.getName());
 
                     plugin.getLogger().warning(
-                            "Match preparation cancelled because "
-                                    + "players could not be removed "
-                                    + "from the queue."
+                            "Match cancelled because players "
+                                    + "could not be removed from queue."
                     );
-
                     return;
                 }
 
                 boolean prepared =
-                        preparationManager.prepareMatch(
-                                match,
-                                arena
-                        );
+                        preparationManager.prepareMatch(match, arena);
 
                 if (!prepared) {
-
                     plugin.getLogger().warning(
                             "Could not prepare match "
                                     + match.getMatchId()
@@ -187,15 +163,10 @@ public final class MatchmakingCoordinator {
                 }
 
             } catch (RuntimeException exception) {
-
                 if (match != null) {
-
                     if (match.getState()
                             != DuelMatch.MatchState.ENDED) {
-
-                        match.setState(
-                                DuelMatch.MatchState.ENDED
-                        );
+                        match.setState(DuelMatch.MatchState.ENDED);
                     }
 
                     matchManager.endMatch(match.getMatchId());
@@ -209,7 +180,6 @@ public final class MatchmakingCoordinator {
                 );
 
                 exception.printStackTrace();
-
                 return;
             }
         }
