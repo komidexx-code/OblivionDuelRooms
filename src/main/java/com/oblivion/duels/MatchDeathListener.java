@@ -196,19 +196,7 @@ public final class MatchDeathListener implements Listener {
         String arenaName =
                 matchManager.getArenaForMatch(match.getMatchId());
 
-        if (arenaName != null) {
-
-            DuelArena arena = arenaManager.getArena(arenaName);
-
-            if (arena != null
-                    && arena.getSpectatorSpawn() != null) {
-
-                spectatorSpawns.put(
-                        playerId,
-                        arena.getSpectatorSpawn()
-                );
-            }
-        }
+        setSpectatorSpawn(playerId, arenaName);
 
         if (!match.eliminatePlayer(playerId)) {
             return;
@@ -292,6 +280,13 @@ public final class MatchDeathListener implements Listener {
 
                     eliminatedDisconnectedPlayers.add(playerId);
 
+                    String arenaName =
+                            matchManager.getArenaForMatch(
+                                    match.getMatchId()
+                            );
+
+                    setSpectatorSpawn(playerId, arenaName);
+
                     if (!match.eliminatePlayer(playerId)) {
                         return;
                     }
@@ -304,11 +299,6 @@ public final class MatchDeathListener implements Listener {
                             ChatColor.RED
                                     + "A disconnected player was eliminated!"
                     );
-
-                    String arenaName =
-                            matchManager.getArenaForMatch(
-                                    match.getMatchId()
-                            );
 
                     checkMatchWinner(match, arenaName);
                 },
@@ -357,6 +347,28 @@ public final class MatchDeathListener implements Listener {
         }
     }
 
+    private void setSpectatorSpawn(
+            UUID playerId,
+            String arenaName
+    ) {
+
+        if (arenaName == null) {
+            return;
+        }
+
+        DuelArena arena = arenaManager.getArena(arenaName);
+
+        if (arena == null || arena.getSpectatorSpawn() == null) {
+            return;
+        }
+
+        Location spawn = arena.getSpectatorSpawn();
+
+        if (spawn.getWorld() != null) {
+            spectatorSpawns.put(playerId, spawn.clone());
+        }
+    }
+
     private List<ItemStack> snapshotInventory(Player player) {
 
         List<ItemStack> items = new ArrayList<>();
@@ -388,9 +400,7 @@ public final class MatchDeathListener implements Listener {
                 key -> new HashMap<>()
         ).put(player.getUniqueId(), items);
 
-        player.getInventory().clear();
-        player.getInventory().setArmorContents(new ItemStack[4]);
-        player.getInventory().setItemInOffHand(null);
+        clearInventory(player);
     }
 
     private void addCopy(List<ItemStack> items, ItemStack item) {
@@ -575,16 +585,30 @@ public final class MatchDeathListener implements Listener {
             List<ItemStack> items
     ) {
 
+        if (playerId == null || items == null || items.isEmpty()) {
+            return;
+        }
+
+        if (databaseManager.isConnected()) {
+
+            List<ItemStack> stored =
+                    databaseManager.loadPendingLoot(playerId);
+
+            for (ItemStack item : items) {
+                addCopy(stored, item);
+            }
+
+            databaseManager.savePendingLoot(playerId, stored);
+            return;
+        }
+
         List<ItemStack> stored = pendingLoot.computeIfAbsent(
                 playerId,
                 key -> new ArrayList<>()
         );
 
         for (ItemStack item : items) {
-
-            if (item != null && !item.getType().isAir()) {
-                stored.add(item.clone());
-            }
+            addCopy(stored, item);
         }
     }
 
@@ -619,13 +643,43 @@ public final class MatchDeathListener implements Listener {
 
         if (eliminatedDisconnectedPlayers.remove(playerId)) {
             clearInventory(player);
+
+            Location spawn = spectatorSpawns.get(playerId);
+
+            if (spawn != null && spawn.getWorld() != null) {
+                player.teleport(spawn);
+                player.setGameMode(
+                        org.bukkit.GameMode.SPECTATOR
+                );
+            }
         }
 
         disconnectedInventories.remove(playerId);
 
-        List<ItemStack> items = pendingLoot.remove(playerId);
+        deliverPendingLoot(player);
+    }
 
-        if (items == null || items.isEmpty()) {
+    private void deliverPendingLoot(Player player) {
+
+        UUID playerId = player.getUniqueId();
+
+        List<ItemStack> items = new ArrayList<>();
+
+        if (databaseManager.isConnected()) {
+            items.addAll(
+                    databaseManager.loadPendingLoot(playerId)
+            );
+        }
+
+        List<ItemStack> memoryItems = pendingLoot.remove(playerId);
+
+        if (memoryItems != null) {
+            for (ItemStack item : memoryItems) {
+                addCopy(items, item);
+            }
+        }
+
+        if (items.isEmpty()) {
             return;
         }
 
@@ -636,18 +690,33 @@ public final class MatchDeathListener implements Listener {
                                 .toArray(ItemStack[]::new)
                 );
 
-        if (!leftovers.isEmpty()) {
+        List<ItemStack> remaining =
+                new ArrayList<>(leftovers.values());
 
-            storePendingLoot(
+        if (databaseManager.isConnected()) {
+
+            databaseManager.savePendingLoot(
                     playerId,
-                    new ArrayList<>(leftovers.values())
+                    remaining
+            );
+
+        } else if (!remaining.isEmpty()) {
+
+            pendingLoot.put(playerId, remaining);
+        }
+
+        if (remaining.isEmpty()) {
+
+            player.sendMessage(
+                    ChatColor.GREEN
+                            + "Your waiting match loot has been delivered!"
             );
 
         } else {
 
             player.sendMessage(
-                    ChatColor.GREEN
-                            + "Your waiting match loot has been delivered!"
+                    ChatColor.YELLOW
+                            + "Some match loot is still waiting because your inventory is full."
             );
         }
     }
@@ -705,6 +774,19 @@ public final class MatchDeathListener implements Listener {
                 && spectatorSpawn.getWorld() != null) {
 
             event.setRespawnLocation(spectatorSpawn);
+
+            Bukkit.getScheduler().runTask(
+                    plugin,
+                    () -> {
+                        Player player = event.getPlayer();
+
+                        if (player.isOnline()) {
+                            player.setGameMode(
+                                    org.bukkit.GameMode.SPECTATOR
+                            );
+                        }
+                    }
+            );
         }
     }
 
