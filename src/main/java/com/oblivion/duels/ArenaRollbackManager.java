@@ -3,29 +3,37 @@ package com.oblivion.duels;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
-import org.bukkit.entity.Entity;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockBurnEvent;
 import org.bukkit.event.block.BlockExplodeEvent;
+import org.bukkit.event.block.BlockFadeEvent;
+import org.bukkit.event.block.BlockFormEvent;
+import org.bukkit.event.block.BlockFromToEvent;
+import org.bukkit.event.block.BlockGrowEvent;
+import org.bukkit.event.block.BlockIgniteEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.block.BlockSpreadEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 
 public final class ArenaRollbackManager implements Listener {
+
+    private static final int RESTORE_BATCH_SIZE = 500;
 
     private final JavaPlugin plugin;
 
@@ -35,45 +43,56 @@ public final class ArenaRollbackManager implements Listener {
     private final Map<String, Set<Location>> trackedBlocks =
             new HashMap<>();
 
+    private final Map<String, List<Map.Entry<Location, BlockState>>>
+            pendingRestorations = new HashMap<>();
+
+    private final Map<String, Runnable> pendingCallbacks =
+            new HashMap<>();
+
+    private final Map<String, BukkitTask> restorationTasks =
+            new HashMap<>();
+
+    private boolean shuttingDown;
+
     public ArenaRollbackManager(JavaPlugin plugin) {
         this.plugin = plugin;
-
         Bukkit.getPluginManager().registerEvents(this, plugin);
     }
 
     public boolean startTracking(DuelArena arena) {
 
-        if (arena == null || !arena.isReady()) {
+        if (arena == null || !arena.isReady() || shuttingDown) {
             return false;
         }
 
         String key = normalize(arena.getName());
 
-        if (snapshots.containsKey(key)) {
+        if (snapshots.containsKey(key)
+                || pendingRestorations.containsKey(key)) {
             return false;
         }
 
-        Map<Location, BlockState> originalBlocks =
-                new HashMap<>();
-
-        snapshots.put(key, originalBlocks);
+        snapshots.put(key, new HashMap<>());
         trackedBlocks.put(key, new HashSet<>());
+
+        plugin.getLogger().info(
+                "Started arena rollback tracking for " + arena.getName()
+        );
 
         return true;
     }
 
     private void recordBlock(Block block) {
 
-        if (block == null || block.getWorld() == null) {
+        if (block == null || block.getWorld() == null || shuttingDown) {
             return;
         }
 
         Location location = block.getLocation();
 
-        for (String arenaName : snapshots.keySet()) {
+        for (String arenaName : new HashSet<>(snapshots.keySet())) {
 
-            DuelArena arena =
-                    getArenaManager().getArena(arenaName);
+            DuelArena arena = getArenaManager().getArena(arenaName);
 
             if (arena == null || !arena.contains(location)) {
                 continue;
@@ -123,6 +142,41 @@ public final class ArenaRollbackManager implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockBurn(BlockBurnEvent event) {
+        recordBlock(event.getBlock());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockIgnite(BlockIgniteEvent event) {
+        recordBlock(event.getBlock());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockSpread(BlockSpreadEvent event) {
+        recordBlock(event.getBlock());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockFade(BlockFadeEvent event) {
+        recordBlock(event.getBlock());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockForm(BlockFormEvent event) {
+        recordBlock(event.getBlock());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockGrow(BlockGrowEvent event) {
+        recordBlock(event.getBlock());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockFromTo(BlockFromToEvent event) {
+        recordBlock(event.getToBlock());
+    }
+
     public void restoreArena(
             DuelArena arena,
             Runnable onComplete
@@ -143,61 +197,19 @@ public final class ArenaRollbackManager implements Listener {
         trackedBlocks.remove(key);
 
         if (original == null || original.isEmpty()) {
+
             if (onComplete != null) {
                 onComplete.run();
             }
+
             return;
         }
 
         List<Map.Entry<Location, BlockState>> blocks =
                 new ArrayList<>(original.entrySet());
 
-        restoreNextBatch(blocks, 0, onComplete);
-    }
-
-    private void restoreNextBatch(
-            List<Map.Entry<Location, BlockState>> blocks,
-            int start,
-            Runnable onComplete
-    ) {
-
-        World world = null;
-
-        int end = Math.min(start + 500, blocks.size());
-
-        for (int i = start; i < end; i++) {
-
-            Map.Entry<Location, BlockState> entry =
-                    blocks.get(i);
-
-            Location location = entry.getKey();
-
-            if (location.getWorld() == null) {
-                continue;
-            }
-
-            world = location.getWorld();
-
-            BlockState original = entry.getValue();
-
-            if (!world.isChunkLoaded(
-                    location.getBlockX() >> 4,
-                    location.getBlockZ() >> 4
-            )) {
-                world.getChunkAt(
-                        location.getBlockX() >> 4,
-                        location.getBlockZ() >> 4
-                ).load();
-            }
-
-            original.update(true, false);
-        }
-
-        if (end >= blocks.size()) {
-            plugin.getLogger().info(
-                    "Arena rollback completed for "
-                            + blocks.size() + " block(s)."
-            );
+        if (shuttingDown) {
+            restoreBlocksImmediately(blocks);
 
             if (onComplete != null) {
                 onComplete.run();
@@ -206,32 +218,153 @@ public final class ArenaRollbackManager implements Listener {
             return;
         }
 
-        Bukkit.getScheduler().runTaskLater(
+        pendingRestorations.put(key, blocks);
+
+        if (onComplete != null) {
+            pendingCallbacks.put(key, onComplete);
+        }
+
+        plugin.getLogger().info(
+                "Restoring " + blocks.size()
+                        + " blocks in arena " + arena.getName() + "."
+        );
+
+        restoreNextBatch(key, 0);
+    }
+
+    private void restoreNextBatch(String arenaName, int start) {
+
+        if (shuttingDown) {
+            return;
+        }
+
+        List<Map.Entry<Location, BlockState>> blocks =
+                pendingRestorations.get(arenaName);
+
+        if (blocks == null) {
+            return;
+        }
+
+        int end = Math.min(
+                start + RESTORE_BATCH_SIZE,
+                blocks.size()
+        );
+
+        for (int i = start; i < end; i++) {
+            restoreBlock(blocks.get(i));
+        }
+
+        if (end >= blocks.size()) {
+
+            pendingRestorations.remove(arenaName);
+
+            BukkitTask task = restorationTasks.remove(arenaName);
+
+            if (task != null) {
+                task.cancel();
+            }
+
+            Runnable callback = pendingCallbacks.remove(arenaName);
+
+            plugin.getLogger().info(
+                    "Finished restoring arena " + arenaName + "."
+            );
+
+            if (callback != null) {
+                callback.run();
+            }
+
+            return;
+        }
+
+        BukkitTask task = Bukkit.getScheduler().runTaskLater(
                 plugin,
-                () -> restoreNextBatch(
-                        blocks,
-                        end,
-                        onComplete
-                ),
+                () -> restoreNextBatch(arenaName, end),
                 1L
         );
+
+        restorationTasks.put(arenaName, task);
+    }
+
+    private void restoreBlock(
+            Map.Entry<Location, BlockState> entry
+    ) {
+
+        Location location = entry.getKey();
+
+        if (location == null || location.getWorld() == null) {
+            return;
+        }
+
+        World world = location.getWorld();
+
+        int chunkX = location.getBlockX() >> 4;
+        int chunkZ = location.getBlockZ() >> 4;
+
+        if (!world.isChunkLoaded(chunkX, chunkZ)) {
+            world.getChunkAt(chunkX, chunkZ).load();
+        }
+
+        BlockState original = entry.getValue();
+
+        if (original != null) {
+            original.update(true, false);
+        }
+    }
+
+    private void restoreBlocksImmediately(
+            List<Map.Entry<Location, BlockState>> blocks
+    ) {
+
+        for (Map.Entry<Location, BlockState> entry : blocks) {
+            restoreBlock(entry);
+        }
     }
 
     public void shutdown() {
 
-        for (String arenaName :
-                new HashSet<>(snapshots.keySet())) {
+        if (shuttingDown) {
+            return;
+        }
 
-            DuelArena arena =
-                    getArenaManager().getArena(arenaName);
+        shuttingDown = true;
 
-            if (arena != null) {
-                restoreArena(arena, null);
-            }
+        for (BukkitTask task : restorationTasks.values()) {
+            task.cancel();
+        }
+
+        restorationTasks.clear();
+
+        for (Map.Entry<String, Map<Location, BlockState>> snapshot
+                : snapshots.entrySet()) {
+
+            restoreBlocksImmediately(
+                    new ArrayList<>(snapshot.getValue().entrySet())
+            );
         }
 
         snapshots.clear();
         trackedBlocks.clear();
+
+        for (List<Map.Entry<Location, BlockState>> blocks
+                : pendingRestorations.values()) {
+
+            restoreBlocksImmediately(blocks);
+        }
+
+        pendingRestorations.clear();
+
+        for (Runnable callback : pendingCallbacks.values()) {
+            if (callback != null) {
+                callback.run();
+            }
+        }
+
+        pendingCallbacks.clear();
+
+        plugin.getLogger().info(
+                "Arena rollback manager shutdown completed."
+        );
     }
 
     private ArenaManager getArenaManager() {
@@ -246,6 +379,6 @@ public final class ArenaRollbackManager implements Listener {
     }
 
     private String normalize(String name) {
-        return name.toLowerCase(java.util.Locale.ROOT);
+        return name.toLowerCase(Locale.ROOT);
     }
 }
