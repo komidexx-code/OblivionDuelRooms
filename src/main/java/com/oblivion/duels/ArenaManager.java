@@ -183,12 +183,17 @@ public final class ArenaManager {
                 path + ".spectator-spawn",
                 arena.getSpectatorSpawn()
         );
+        saveLocation(
+                path + ".exit-spawn",
+                arena.getExitSpawn()
+        );
 
         plugin.saveConfig();
     }
 
     private void saveLocation(String path, Location location) {
         if (location == null) {
+            plugin.getConfig().set(path, null);
             return;
         }
 
@@ -235,7 +240,6 @@ public final class ArenaManager {
         for (String name : section.getKeys(false)) {
             String key = normalizeName(name);
 
-            // Never replace an arena currently used by a match.
             if (occupiedArenas.contains(key)) {
                 loadedKeys.add(key);
                 continue;
@@ -279,32 +283,7 @@ public final class ArenaManager {
                 continue;
             }
 
-            arena.setCorner1(loadLocation(
-                    arenaSection.getConfigurationSection("corner1"),
-                    world
-            ));
-
-            arena.setCorner2(loadLocation(
-                    arenaSection.getConfigurationSection("corner2"),
-                    world
-            ));
-
-            arena.setTeamASpawn(loadLocation(
-                    arenaSection.getConfigurationSection("team-a-spawn"),
-                    world
-            ));
-
-            arena.setTeamBSpawn(loadLocation(
-                    arenaSection.getConfigurationSection("team-b-spawn"),
-                    world
-            ));
-
-            arena.setSpectatorSpawn(loadLocation(
-                    arenaSection.getConfigurationSection(
-                            "spectator-spawn"
-                    ),
-                    world
-            ));
+            loadArenaLocations(arena, arenaSection, world);
 
             if (arena.isReady()) {
                 arenas.put(key, arena);
@@ -323,6 +302,42 @@ public final class ArenaManager {
                 "Reloaded arena definitions. Loaded "
                         + arenas.size() + " arena(s)."
         );
+    }
+
+    private void loadArenaLocations(
+            DuelArena arena,
+            ConfigurationSection section,
+            World world
+    ) {
+        arena.setCorner1(loadLocation(
+                section.getConfigurationSection("corner1"),
+                world
+        ));
+
+        arena.setCorner2(loadLocation(
+                section.getConfigurationSection("corner2"),
+                world
+        ));
+
+        arena.setTeamASpawn(loadLocation(
+                section.getConfigurationSection("team-a-spawn"),
+                world
+        ));
+
+        arena.setTeamBSpawn(loadLocation(
+                section.getConfigurationSection("team-b-spawn"),
+                world
+        ));
+
+        arena.setSpectatorSpawn(loadLocation(
+                section.getConfigurationSection("spectator-spawn"),
+                world
+        ));
+
+        arena.setExitSpawn(loadLocation(
+                section.getConfigurationSection("exit-spawn"),
+                world
+        ));
     }
 
     private void removeUnoccupiedArenas(Set<String> loadedKeys) {
@@ -378,32 +393,7 @@ public final class ArenaManager {
                 continue;
             }
 
-            arena.setCorner1(loadLocation(
-                    arenaSection.getConfigurationSection("corner1"),
-                    world
-            ));
-
-            arena.setCorner2(loadLocation(
-                    arenaSection.getConfigurationSection("corner2"),
-                    world
-            ));
-
-            arena.setTeamASpawn(loadLocation(
-                    arenaSection.getConfigurationSection("team-a-spawn"),
-                    world
-            ));
-
-            arena.setTeamBSpawn(loadLocation(
-                    arenaSection.getConfigurationSection("team-b-spawn"),
-                    world
-            ));
-
-            arena.setSpectatorSpawn(loadLocation(
-                    arenaSection.getConfigurationSection(
-                            "spectator-spawn"
-                    ),
-                    world
-            ));
+            loadArenaLocations(arena, arenaSection, world);
 
             if (arena.isReady()) {
                 arenas.put(normalizeName(name), arena);
