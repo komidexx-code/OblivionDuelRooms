@@ -5,6 +5,10 @@ import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.Sound;
+import org.bukkit.boss.BarColor;
+import org.bukkit.boss.BarStyle;
+import org.bukkit.boss.BossBar;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -16,6 +20,10 @@ import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.scoreboard.DisplaySlot;
+import org.bukkit.scoreboard.Objective;
+import org.bukkit.scoreboard.Scoreboard;
+import org.bukkit.scoreboard.Team;
 
 import java.util.*;
 
@@ -28,29 +36,29 @@ public final class MatchDeathListener implements Listener {
     private final StatsManager statsManager;
     private final DatabaseManager databaseManager;
 
-    private final Map<UUID, Location> spectatorSpawns =
-            new HashMap<>();
-
-    private final Map<UUID, Location> exitSpawns =
-            new HashMap<>();
+    private final Map<UUID, Location> spectatorSpawns = new HashMap<>();
+    private final Map<UUID, Location> exitSpawns = new HashMap<>();
 
     private final Map<UUID, Map<UUID, List<ItemStack>>> matchLoot =
             new HashMap<>();
 
-    private final Map<UUID, List<ItemStack>> pendingLoot =
-            new HashMap<>();
-
+    private final Map<UUID, List<ItemStack>> pendingLoot = new HashMap<>();
     private final Map<UUID, List<ItemStack>> disconnectedInventories =
             new HashMap<>();
 
-    private final Set<UUID> eliminatedDisconnectedPlayers =
-            new HashSet<>();
+    private final Set<UUID> eliminatedDisconnectedPlayers = new HashSet<>();
 
-    private final Map<UUID, BukkitTask> disconnectTasks =
-            new HashMap<>();
+    private final Map<UUID, BukkitTask> disconnectTasks = new HashMap<>();
+    private final Map<UUID, BukkitTask> timeoutTasks = new HashMap<>();
 
-    private final Map<UUID, BukkitTask> timeoutTasks =
-            new HashMap<>();
+    // Match HUD
+    private final Map<UUID, BukkitTask> hudTasks = new HashMap<>();
+    private final Map<UUID, BossBar> matchBossBars = new HashMap<>();
+
+    private final Map<UUID, Scoreboard> matchScoreboards = new HashMap<>();
+    private final Map<UUID, Scoreboard> previousScoreboards = new HashMap<>();
+
+    private long matchEndTimesPlaceholder;
 
     public MatchDeathListener(
             JavaPlugin plugin,
@@ -72,6 +80,10 @@ public final class MatchDeathListener implements Listener {
 
         Bukkit.getPluginManager().registerEvents(this, plugin);
     }
+
+    // =========================================================
+    // MATCH TIMER
+    // =========================================================
 
     public void startMatchTimeout(DuelMatch match) {
 
@@ -95,6 +107,12 @@ public final class MatchDeathListener implements Listener {
                         15
                 )
         );
+
+        long durationTicks = minutes * 60L * 20L;
+        long endTimeMillis =
+                System.currentTimeMillis() + minutes * 60_000L;
+
+        startMatchHud(match, durationTicks, endTimeMillis);
 
         BukkitTask task = Bukkit.getScheduler().runTaskLater(
                 plugin,
@@ -154,11 +172,425 @@ public final class MatchDeathListener implements Listener {
                         );
                     }
                 },
-                minutes * 60L * 20L
+                durationTicks
         );
 
         timeoutTasks.put(matchId, task);
     }
+
+    // =========================================================
+    // HUD SETUP
+    // =========================================================
+
+    private boolean isHudEnabled() {
+        return plugin.getConfig().getBoolean(
+                "match-hud.enabled",
+                true
+        );
+    }
+
+    private void startMatchHud(
+            DuelMatch match,
+            long durationTicks,
+            long endTimeMillis
+    ) {
+
+        if (!isHudEnabled()) {
+            return;
+        }
+
+        UUID matchId = match.getMatchId();
+
+        if (plugin.getConfig().getBoolean(
+                "match-hud.timer.enabled",
+                true
+        )) {
+
+            BarColor barColor;
+
+            try {
+                barColor = BarColor.valueOf(
+                        plugin.getConfig().getString(
+                                "match-hud.timer.color",
+                                "PURPLE"
+                        ).toUpperCase(Locale.ROOT)
+                );
+            } catch (IllegalArgumentException exception) {
+                barColor = BarColor.PURPLE;
+            }
+
+            BossBar bossBar = Bukkit.createBossBar(
+                    format(
+                            plugin.getConfig().getString(
+                                    "match-hud.timer.title",
+                                    "&5&lMATCH TIME"
+                            )
+                    ),
+                    barColor,
+                    BarStyle.SOLID
+            );
+
+            bossBar.setVisible(true);
+            matchBossBars.put(matchId, bossBar);
+        }
+
+        for (UUID playerId : match.getTeamA()) {
+            setupPlayerHud(match, playerId);
+        }
+
+        for (UUID playerId : match.getTeamB()) {
+            setupPlayerHud(match, playerId);
+        }
+
+        if (matchBossBars.containsKey(matchId)) {
+
+            BukkitTask task = Bukkit.getScheduler().runTaskTimer(
+                    plugin,
+                    () -> {
+
+                        if (match.getState()
+                                != DuelMatch.MatchState.ACTIVE) {
+                            removeMatchHud(match);
+                            return;
+                        }
+
+                        long remainingMillis = Math.max(
+                                0,
+                                endTimeMillis - System.currentTimeMillis()
+                        );
+
+                        long remainingSeconds =
+                                (remainingMillis + 999L) / 1000L;
+
+                        updateBossBar(
+                                match,
+                                remainingSeconds,
+                                durationTicks / 20L
+                        );
+                    },
+                    0L,
+                    20L
+            );
+
+            hudTasks.put(matchId, task);
+        }
+    }
+
+    private void setupPlayerHud(
+            DuelMatch match,
+            UUID playerId
+    ) {
+
+        Player player = Bukkit.getPlayer(playerId);
+
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+
+        if (!isHudEnabled()) {
+            return;
+        }
+
+        UUID matchId = match.getMatchId();
+
+        BossBar bossBar = matchBossBars.get(matchId);
+
+        if (bossBar != null) {
+            bossBar.addPlayer(player);
+        }
+
+        if (plugin.getConfig().getBoolean(
+                "match-hud.scoreboard.enabled",
+                true
+        )) {
+
+            createPlayerScoreboard(match, player);
+        }
+    }
+
+    // =========================================================
+    // SCOREBOARD
+    // =========================================================
+
+    private void createPlayerScoreboard(
+            DuelMatch match,
+            Player player
+    ) {
+
+        UUID playerId = player.getUniqueId();
+
+        Scoreboard scoreboard = matchScoreboards.get(playerId);
+
+        if (scoreboard == null) {
+
+            if (!previousScoreboards.containsKey(playerId)) {
+                previousScoreboards.put(
+                        playerId,
+                        player.getScoreboard()
+                );
+            }
+
+            scoreboard = Bukkit.getScoreboardManager()
+                    .getNewScoreboard();
+
+            Objective objective = scoreboard.registerNewObjective(
+                    "oblivionduels",
+                    "dummy",
+                    format(
+                            plugin.getConfig().getString(
+                                    "match-hud.scoreboard.title",
+                                    "&5&lOBLIVION DUELS"
+                            )
+                    )
+            );
+
+            objective.setDisplaySlot(DisplaySlot.SIDEBAR);
+
+            Team teamA = scoreboard.registerNewTeam("od_team_a");
+            Team teamB = scoreboard.registerNewTeam("od_team_b");
+
+            String entryA = ChatColor.BLACK.toString();
+            String entryB = ChatColor.DARK_BLUE.toString();
+
+            teamA.addEntry(entryA);
+            teamB.addEntry(entryB);
+
+            objective.getScore(entryA).setScore(2);
+            objective.getScore(entryB).setScore(1);
+
+            matchScoreboards.put(playerId, scoreboard);
+        }
+
+        updatePlayerScoreboard(match, playerId);
+
+        player.setScoreboard(scoreboard);
+    }
+
+    private void updatePlayerScoreboard(
+            DuelMatch match,
+            UUID playerId
+    ) {
+
+        Scoreboard scoreboard = matchScoreboards.get(playerId);
+
+        if (scoreboard == null) {
+            return;
+        }
+
+        Team teamA = scoreboard.getTeam("od_team_a");
+        Team teamB = scoreboard.getTeam("od_team_b");
+
+        if (teamA == null || teamB == null) {
+            return;
+        }
+
+        String teamAName = format(
+                plugin.getConfig().getString(
+                        "match-hud.scoreboard.team-a-name",
+                        "&e&lTEAM A"
+                )
+        );
+
+        String teamBName = format(
+                plugin.getConfig().getString(
+                        "match-hud.scoreboard.team-b-name",
+                        "&b&lTEAM B"
+                )
+        );
+
+        teamA.setPrefix(teamAName + " ");
+        teamA.setSuffix(
+                ChatColor.WHITE.toString()
+                        + match.getTeamAScore()
+        );
+
+        teamB.setPrefix(teamBName + " ");
+        teamB.setSuffix(
+                ChatColor.WHITE.toString()
+                        + match.getTeamBScore()
+        );
+    }
+
+    private void updateMatchScoreboards(DuelMatch match) {
+
+        for (UUID playerId : match.getTeamA()) {
+            updatePlayerScoreboard(match, playerId);
+        }
+
+        for (UUID playerId : match.getTeamB()) {
+            updatePlayerScoreboard(match, playerId);
+        }
+    }
+
+    // =========================================================
+    // SCORE AWARDING AND SOUND
+    // =========================================================
+
+    private void awardEliminationPoint(
+            DuelMatch match,
+            UUID eliminatedPlayer
+    ) {
+
+        if (match == null
+                || match.getState() != DuelMatch.MatchState.ACTIVE) {
+            return;
+        }
+
+        match.awardPointToOpposingTeam(eliminatedPlayer);
+
+        updateMatchScoreboards(match);
+        playScoreSound(match);
+    }
+
+    private void playScoreSound(DuelMatch match) {
+
+        if (!plugin.getConfig().getBoolean(
+                "match-hud.score-sound.enabled",
+                true
+        )) {
+            return;
+        }
+
+        Sound sound;
+
+        try {
+            sound = Sound.valueOf(
+                    plugin.getConfig().getString(
+                            "match-hud.score-sound.sound",
+                            "ENTITY_FIREWORK_ROCKET_BLAST"
+                    ).toUpperCase(Locale.ROOT)
+            );
+        } catch (IllegalArgumentException exception) {
+            sound = Sound.ENTITY_FIREWORK_ROCKET_BLAST;
+        }
+
+        float volume = (float) plugin.getConfig().getDouble(
+                "match-hud.score-sound.volume",
+                1.0
+        );
+
+        float pitch = (float) plugin.getConfig().getDouble(
+                "match-hud.score-sound.pitch",
+                1.0
+        );
+
+        for (UUID playerId : match.getTeamA()) {
+            Player player = Bukkit.getPlayer(playerId);
+
+            if (player != null) {
+                player.playSound(player.getLocation(), sound, volume, pitch);
+            }
+        }
+
+        for (UUID playerId : match.getTeamB()) {
+            Player player = Bukkit.getPlayer(playerId);
+
+            if (player != null) {
+                player.playSound(player.getLocation(), sound, volume, pitch);
+            }
+        }
+    }
+
+    // =========================================================
+    // BOSS BAR TIMER
+    // =========================================================
+
+    private void updateBossBar(
+            DuelMatch match,
+            long remainingSeconds,
+            long totalSeconds
+    ) {
+
+        BossBar bossBar = matchBossBars.get(match.getMatchId());
+
+        if (bossBar == null) {
+            return;
+        }
+
+        long minutes = remainingSeconds / 60;
+        long seconds = remainingSeconds % 60;
+
+        String time = String.format(
+                Locale.ROOT,
+                "%02d:%02d",
+                minutes,
+                seconds
+        );
+
+        String title = format(
+                plugin.getConfig().getString(
+                        "match-hud.timer.title",
+                        "&5&lMATCH TIME"
+                )
+        );
+
+        bossBar.setTitle(title + " &7- &f" + time);
+
+        double progress = totalSeconds <= 0
+                ? 0.0
+                : (double) remainingSeconds / totalSeconds;
+
+        bossBar.setProgress(
+                Math.max(0.0, Math.min(1.0, progress))
+        );
+    }
+
+    // =========================================================
+    // HUD CLEANUP
+    // =========================================================
+
+    private void removeMatchHud(DuelMatch match) {
+
+        if (match == null) {
+            return;
+        }
+
+        UUID matchId = match.getMatchId();
+
+        BukkitTask task = hudTasks.remove(matchId);
+
+        if (task != null) {
+            task.cancel();
+        }
+
+        BossBar bossBar = matchBossBars.remove(matchId);
+
+        if (bossBar != null) {
+            bossBar.removeAll();
+        }
+
+        for (UUID playerId : match.getTeamA()) {
+            restorePlayerScoreboard(playerId);
+        }
+
+        for (UUID playerId : match.getTeamB()) {
+            restorePlayerScoreboard(playerId);
+        }
+    }
+
+    private void restorePlayerScoreboard(UUID playerId) {
+
+        matchScoreboards.remove(playerId);
+
+        Scoreboard previous = previousScoreboards.remove(playerId);
+
+        Player player = Bukkit.getPlayer(playerId);
+
+        if (previous != null && player != null && player.isOnline()) {
+            player.setScoreboard(previous);
+        }
+    }
+
+    private String format(String text) {
+        return ChatColor.translateAlternateColorCodes(
+                '&',
+                text == null ? "" : text
+        );
+    }
+
+    // =========================================================
+    // PLAYER DEATH
+    // =========================================================
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerDeath(PlayerDeathEvent event) {
@@ -212,6 +644,8 @@ public final class MatchDeathListener implements Listener {
             return;
         }
 
+        awardEliminationPoint(match, playerId);
+
         broadcast(
                 match,
                 ChatColor.RED + player.getName()
@@ -220,6 +654,10 @@ public final class MatchDeathListener implements Listener {
 
         checkMatchWinner(match, arenaName);
     }
+
+    // =========================================================
+    // PLAYER DISCONNECT
+    // =========================================================
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
@@ -304,6 +742,8 @@ public final class MatchDeathListener implements Listener {
                     statsManager.addDeath(playerId);
                     saveStats(playerId);
 
+                    awardEliminationPoint(match, playerId);
+
                     broadcast(
                             match,
                             ChatColor.RED
@@ -317,6 +757,10 @@ public final class MatchDeathListener implements Listener {
 
         disconnectTasks.put(playerId, task);
     }
+
+    // =========================================================
+    // MATCH WINNER
+    // =========================================================
 
     private void checkMatchWinner(
             DuelMatch match,
@@ -357,6 +801,10 @@ public final class MatchDeathListener implements Listener {
         }
     }
 
+    // =========================================================
+    // ARENA SPAWNS
+    // =========================================================
+
     private void setSpectatorSpawn(
             UUID playerId,
             String arenaName
@@ -394,6 +842,10 @@ public final class MatchDeathListener implements Listener {
             );
         }
     }
+
+    // =========================================================
+    // INVENTORY
+    // =========================================================
 
     private List<ItemStack> snapshotInventory(Player player) {
 
@@ -443,6 +895,10 @@ public final class MatchDeathListener implements Listener {
         player.getInventory().setItemInOffHand(null);
     }
 
+    // =========================================================
+    // FINISH MATCH
+    // =========================================================
+
     private void finishMatch(
             DuelMatch match,
             String arenaName,
@@ -458,6 +914,7 @@ public final class MatchDeathListener implements Listener {
 
         match.setState(DuelMatch.MatchState.ENDING);
 
+        removeMatchHud(match);
         cancelDisconnectTasks(match);
 
         BukkitTask timeout = timeoutTasks.remove(
@@ -550,6 +1007,10 @@ public final class MatchDeathListener implements Listener {
             task.cancel();
         }
     }
+
+    // =========================================================
+    // LOOT DISTRIBUTION
+    // =========================================================
 
     private void distributeLoot(
             DuelMatch match,
@@ -683,6 +1144,10 @@ public final class MatchDeathListener implements Listener {
         }
     }
 
+    // =========================================================
+    // PLAYER JOIN
+    // =========================================================
+
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
 
@@ -731,11 +1196,18 @@ public final class MatchDeathListener implements Listener {
                 }
             }
 
+            setupPlayerHud(match, playerId);
+
         } else if (wasEliminatedWhileDisconnected
                 || exitSpawns.containsKey(playerId)) {
 
             clearInventory(player);
             restorePlayerAfterMatch(player, playerId);
+            restorePlayerScoreboard(playerId);
+
+        } else {
+
+            restorePlayerScoreboard(playerId);
         }
 
         disconnectedInventories.remove(playerId);
@@ -760,6 +1232,10 @@ public final class MatchDeathListener implements Listener {
             player.teleport(exitSpawn);
         }
     }
+
+    // =========================================================
+    // PENDING LOOT
+    // =========================================================
 
     private void deliverPendingLoot(Player player) {
 
@@ -823,6 +1299,10 @@ public final class MatchDeathListener implements Listener {
         }
     }
 
+    // =========================================================
+    // STATISTICS
+    // =========================================================
+
     private void recordResults(
             DuelMatch match,
             DuelMatch.WinningTeam winner
@@ -864,6 +1344,10 @@ public final class MatchDeathListener implements Listener {
         );
     }
 
+    // =========================================================
+    // RESPAWN
+    // =========================================================
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerRespawn(PlayerRespawnEvent event) {
 
@@ -891,6 +1375,10 @@ public final class MatchDeathListener implements Listener {
             );
         }
     }
+
+    // =========================================================
+    // BROADCAST
+    // =========================================================
 
     private void broadcast(
             DuelMatch match,
@@ -924,6 +1412,10 @@ public final class MatchDeathListener implements Listener {
         }
     }
 
+    // =========================================================
+    // SHUTDOWN
+    // =========================================================
+
     public void shutdown() {
 
         for (BukkitTask task : disconnectTasks.values()) {
@@ -937,5 +1429,23 @@ public final class MatchDeathListener implements Listener {
         }
 
         timeoutTasks.clear();
+
+        for (BukkitTask task : hudTasks.values()) {
+            task.cancel();
+        }
+
+        hudTasks.clear();
+
+        for (BossBar bossBar : matchBossBars.values()) {
+            bossBar.removeAll();
+        }
+
+        matchBossBars.clear();
+
+        Set<UUID> players = new HashSet<>(matchScoreboards.keySet());
+
+        for (UUID playerId : players) {
+            restorePlayerScoreboard(playerId);
+        }
     }
 }
