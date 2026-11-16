@@ -44,14 +44,7 @@ public final class OblivionDuels extends JavaPlugin
     @Override
     public void onEnable() {
         saveDefaultConfig();
-
-        prefix = ChatColor.translateAlternateColorCodes(
-                '&',
-                getConfig().getString(
-                        "settings.prefix",
-                        "&8[&5OblivionDuels&8] "
-                )
-        );
+        updatePrefix();
 
         statsManager = new StatsManager();
         databaseManager = new DatabaseManager(this);
@@ -73,6 +66,7 @@ public final class OblivionDuels extends JavaPlugin
         arenaSelection = new ArenaSelection(this);
         arenaManager = new ArenaManager(this);
 
+        // Registers itself as a Bukkit listener.
         matchDeathListener = new MatchDeathListener(
                 this,
                 matchManager,
@@ -81,6 +75,7 @@ public final class OblivionDuels extends JavaPlugin
                 databaseManager
         );
 
+        // Registers itself and starts its refresh task.
         duelMenu = new DuelMenu(this, matchmaking);
 
         matchmakingCoordinator = new MatchmakingCoordinator(
@@ -92,44 +87,65 @@ public final class OblivionDuels extends JavaPlugin
 
         matchmakingCoordinator.start();
 
-        if (Bukkit.getPluginManager().isPluginEnabled(
-                "PlaceholderAPI")) {
-
-            placeholderExpansion =
-                    new DuelPlaceholderExpansion();
-
-            placeholderExpansion.register();
-
-            getLogger().info(
-                    "PlaceholderAPI expansion registered."
-            );
-
-        } else {
-            getLogger().info(
-                    "PlaceholderAPI not found. "
-                    + "Placeholder support disabled."
-            );
-        }
-
-        if (getCommand("duels") != null) {
-            getCommand("duels").setExecutor(this);
-        }
+        registerPlaceholderExpansion();
+        registerCommand();
 
         getLogger().info("OblivionDuels by Komomii enabled!");
     }
 
-    @Override
-    public void onDisable() {
-        if (placeholderExpansion != null) {
-            placeholderExpansion.unregister();
+    private void updatePrefix() {
+        prefix = ChatColor.translateAlternateColorCodes(
+                '&',
+                getConfig().getString(
+                        "settings.prefix",
+                        "&8[&5OblivionDuels&8] "
+                )
+        );
+    }
+
+    private void registerPlaceholderExpansion() {
+        if (!Bukkit.getPluginManager().isPluginEnabled(
+                "PlaceholderAPI")) {
+
+            getLogger().info(
+                    "PlaceholderAPI not found. "
+                    + "Placeholder support disabled."
+            );
+            return;
         }
 
+        placeholderExpansion = new DuelPlaceholderExpansion();
+
+        placeholderExpansion.register();
+
+        getLogger().info(
+                "PlaceholderAPI expansion registered."
+        );
+    }
+
+    private void registerCommand() {
+        if (getCommand("duels") == null) {
+            getLogger().severe(
+                    "Command 'duels' is missing from plugin.yml!"
+            );
+            return;
+        }
+
+        getCommand("duels").setExecutor(this);
+    }
+
+    @Override
+    public void onDisable() {
         if (matchmakingCoordinator != null) {
             matchmakingCoordinator.stop();
         }
 
         if (matchDeathListener != null) {
             matchDeathListener.shutdown();
+        }
+
+        if (placeholderExpansion != null) {
+            placeholderExpansion.unregister();
         }
 
         if (databaseManager != null && statsManager != null) {
@@ -172,6 +188,10 @@ public final class OblivionDuels extends JavaPlugin
         return matchDeathListener;
     }
 
+    public DuelMenu getDuelMenu() {
+        return duelMenu;
+    }
+
     private boolean isAdmin(CommandSender sender) {
         return sender.hasPermission("oblivionduels.admin");
     }
@@ -180,7 +200,6 @@ public final class OblivionDuels extends JavaPlugin
             Player joiningPlayer,
             int teamSize
     ) {
-
         int currentPlayers =
                 matchmaking.getQueueSize(teamSize);
 
@@ -214,6 +233,46 @@ public final class OblivionDuels extends JavaPlugin
                     1.5f
             );
         }
+    }
+
+    /**
+     * Shared queue validation for commands and menus.
+     */
+    public boolean joinQueue(Player player, int teamSize) {
+        if (player == null
+                || teamSize < 1
+                || teamSize > 5) {
+            return false;
+        }
+
+        UUID playerId = player.getUniqueId();
+
+        if (matchManager.isInMatch(playerId)) {
+            player.sendMessage(prefix + ChatColor.RED
+                    + "You are already in a match.");
+            return false;
+        }
+
+        if (matchmaking.getQueuedMode(playerId) != null) {
+            player.sendMessage(prefix + ChatColor.RED
+                    + "You are already in a queue.");
+            return false;
+        }
+
+        if (!matchmaking.joinQueue(playerId, teamSize)) {
+            player.sendMessage(prefix + ChatColor.RED
+                    + "Could not join the queue.");
+            return false;
+        }
+
+        player.sendMessage(prefix + ChatColor.GREEN
+                + "You joined the "
+                + teamSize + "v" + teamSize
+                + " queue!");
+
+        announceQueueJoin(player, teamSize);
+
+        return true;
     }
 
     private void sendArenaHelp(CommandSender sender) {
@@ -253,6 +312,9 @@ public final class OblivionDuels extends JavaPlugin
                     + "OblivionDuels Commands");
 
             sender.sendMessage(ChatColor.GRAY
+                    + "/duels menu");
+
+            sender.sendMessage(ChatColor.GRAY
                     + "/duels join <1v1|2v2|3v3|4v4|5v5>");
 
             sender.sendMessage(ChatColor.GRAY
@@ -274,8 +336,17 @@ public final class OblivionDuels extends JavaPlugin
 
         switch (sub) {
 
-            case "arena": {
+            case "menu": {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage("Players only.");
+                    return true;
+                }
 
+                duelMenu.openMenu(player);
+                return true;
+            }
+
+            case "arena": {
                 if (!isAdmin(sender)) {
                     sender.sendMessage(prefix + ChatColor.RED
                             + "You don't have permission.");
@@ -290,7 +361,6 @@ public final class OblivionDuels extends JavaPlugin
                 String action = args[1].toLowerCase(Locale.ROOT);
 
                 if (action.equals("wand")) {
-
                     if (!(sender instanceof Player player)) {
                         sender.sendMessage("Players only.");
                         return true;
@@ -307,14 +377,13 @@ public final class OblivionDuels extends JavaPlugin
                 }
 
                 if (action.equals("create")) {
-
                     if (!(sender instanceof Player player)) {
                         sender.sendMessage("Players only.");
                         return true;
                     }
 
                     if (args.length < 3) {
-                        sender.sendMessage(prefix + ChatColor.RED
+                        player.sendMessage(prefix + ChatColor.RED
                                 + "Usage: /duels arena create <name>");
                         return true;
                     }
@@ -348,7 +417,6 @@ public final class OblivionDuels extends JavaPlugin
                 }
 
                 if (action.equals("setregion")) {
-
                     if (!(sender instanceof Player player)) {
                         sender.sendMessage("Players only.");
                         return true;
@@ -386,7 +454,6 @@ public final class OblivionDuels extends JavaPlugin
                 }
 
                 if (action.equals("setspawn")) {
-
                     if (!(sender instanceof Player player)) {
                         sender.sendMessage("Players only.");
                         return true;
@@ -414,10 +481,8 @@ public final class OblivionDuels extends JavaPlugin
 
                     if (team.equals("a")) {
                         arena.setTeamASpawn(location);
-
                     } else if (team.equals("b")) {
                         arena.setTeamBSpawn(location);
-
                     } else {
                         player.sendMessage(prefix + ChatColor.RED
                                 + "Use a or b.");
@@ -432,7 +497,6 @@ public final class OblivionDuels extends JavaPlugin
                 }
 
                 if (action.equals("setspectator")) {
-
                     if (!(sender instanceof Player player)) {
                         sender.sendMessage("Players only.");
                         return true;
@@ -459,7 +523,6 @@ public final class OblivionDuels extends JavaPlugin
                 }
 
                 if (action.equals("save")) {
-
                     if (!(sender instanceof Player player)) {
                         sender.sendMessage("Players only.");
                         return true;
@@ -485,7 +548,6 @@ public final class OblivionDuels extends JavaPlugin
                     arenaManager.saveArena(arena);
 
                     pendingArenas.remove(playerId);
-
                     arenaSelection.clearSelection(playerId);
 
                     player.sendMessage(prefix + ChatColor.GREEN
@@ -499,7 +561,6 @@ public final class OblivionDuels extends JavaPlugin
             }
 
             case "join": {
-
                 if (!(sender instanceof Player player)) {
                     sender.sendMessage("Players only.");
                     return true;
@@ -511,57 +572,28 @@ public final class OblivionDuels extends JavaPlugin
                     return true;
                 }
 
-                int teamSize;
+                String mode = args[1].toLowerCase(Locale.ROOT);
 
-                try {
-                    String mode = args[1].toLowerCase(Locale.ROOT)
-                            .replace("v", "");
+                int teamSize = switch (mode) {
+                    case "1v1" -> 1;
+                    case "2v2" -> 2;
+                    case "3v3" -> 3;
+                    case "4v4" -> 4;
+                    case "5v5" -> 5;
+                    default -> 0;
+                };
 
-                    teamSize = Integer.parseInt(mode);
-
-                } catch (NumberFormatException exception) {
+                if (teamSize == 0) {
                     player.sendMessage(prefix + ChatColor.RED
                             + "Invalid mode. Use 1v1, 2v2, 3v3, 4v4, or 5v5.");
                     return true;
                 }
 
-                if (teamSize < 1 || teamSize > 5) {
-                    player.sendMessage(prefix + ChatColor.RED
-                            + "Invalid mode. Choose between 1v1 and 5v5.");
-                    return true;
-                }
-
-                UUID playerId = player.getUniqueId();
-
-                if (matchManager.isInMatch(playerId)) {
-                    player.sendMessage(prefix + ChatColor.RED
-                            + "You are already in a match.");
-                    return true;
-                }
-
-                if (matchmaking.getQueuedMode(playerId) != null) {
-                    player.sendMessage(prefix + ChatColor.RED
-                            + "You are already in a queue.");
-                    return true;
-                }
-
-                if (!matchmaking.joinQueue(playerId, teamSize)) {
-                    player.sendMessage(prefix + ChatColor.RED
-                            + "Could not join the queue.");
-                    return true;
-                }
-
-                player.sendMessage(prefix + ChatColor.GREEN
-                        + "You joined the " + teamSize + "v" + teamSize
-                        + " queue!");
-
-                announceQueueJoin(player, teamSize);
-
+                joinQueue(player, teamSize);
                 return true;
             }
 
             case "leave": {
-
                 if (!(sender instanceof Player player)) {
                     sender.sendMessage("Players only.");
                     return true;
@@ -570,12 +602,10 @@ public final class OblivionDuels extends JavaPlugin
                 UUID playerId = player.getUniqueId();
 
                 if (matchmaking.getQueuedMode(playerId) != null) {
-
                     matchmaking.leaveQueue(playerId);
 
                     player.sendMessage(prefix + ChatColor.GREEN
                             + "You left the queue.");
-
                     return true;
                 }
 
@@ -586,12 +616,10 @@ public final class OblivionDuels extends JavaPlugin
             }
 
             case "queue": {
-
                 sender.sendMessage(prefix + ChatColor.LIGHT_PURPLE
                         + "Queue Status:");
 
                 for (int size = 1; size <= 5; size++) {
-
                     sender.sendMessage(ChatColor.GRAY.toString()
                             + size + "v" + size + ": "
                             + ChatColor.WHITE
@@ -603,7 +631,6 @@ public final class OblivionDuels extends JavaPlugin
             }
 
             case "status": {
-
                 sender.sendMessage(prefix + ChatColor.LIGHT_PURPLE
                         + "OblivionDuels Status");
 
@@ -623,7 +650,6 @@ public final class OblivionDuels extends JavaPlugin
             }
 
             case "reload": {
-
                 if (!isAdmin(sender)) {
                     sender.sendMessage(prefix + ChatColor.RED
                             + "You don't have permission.");
@@ -631,14 +657,7 @@ public final class OblivionDuels extends JavaPlugin
                 }
 
                 reloadConfig();
-
-                prefix = ChatColor.translateAlternateColorCodes(
-                        '&',
-                        getConfig().getString(
-                                "settings.prefix",
-                                "&8[&5OblivionDuels&8] "
-                        )
-                );
+                updatePrefix();
 
                 sender.sendMessage(prefix + ChatColor.GREEN
                         + "Configuration reloaded.");
@@ -647,7 +666,6 @@ public final class OblivionDuels extends JavaPlugin
             }
 
             default: {
-
                 sender.sendMessage(prefix + ChatColor.RED
                         + "Unknown command. Use /duels help.");
 
@@ -692,7 +710,6 @@ public final class OblivionDuels extends JavaPlugin
                     statsManager.getStats(player.getUniqueId());
 
             switch (params.toLowerCase(Locale.ROOT)) {
-
                 case "wins":
                     return String.valueOf(stats.getWins());
 
@@ -733,4 +750,3 @@ public final class OblivionDuels extends JavaPlugin
         }
     }
 }
- 
