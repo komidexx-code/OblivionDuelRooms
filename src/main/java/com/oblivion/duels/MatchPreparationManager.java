@@ -20,6 +20,7 @@ public final class MatchPreparationManager {
     private final JavaPlugin plugin;
     private final MatchManager matchManager;
     private final ArenaManager arenaManager;
+    private final ArenaRollbackManager rollbackManager;
 
     private final Map<UUID, BukkitTask> countdownTasks =
             new HashMap<>();
@@ -30,11 +31,13 @@ public final class MatchPreparationManager {
     public MatchPreparationManager(
             JavaPlugin plugin,
             MatchManager matchManager,
-            ArenaManager arenaManager
+            ArenaManager arenaManager,
+            ArenaRollbackManager rollbackManager
     ) {
         this.plugin = plugin;
         this.matchManager = matchManager;
         this.arenaManager = arenaManager;
+        this.rollbackManager = rollbackManager;
     }
 
     public boolean prepareMatch(DuelMatch match, DuelArena arena) {
@@ -81,6 +84,16 @@ public final class MatchPreparationManager {
         }
 
         UUID matchId = match.getMatchId();
+
+        if (!rollbackManager.startTracking(arena)) {
+            abortMatch(
+                    match,
+                    arena,
+                    "Arena rollback tracking could not start."
+            );
+            return false;
+        }
+
         originalLocations.put(matchId, savedLocations);
 
         for (UUID id : match.getTeamA()) {
@@ -290,14 +303,19 @@ public final class MatchPreparationManager {
         match.setState(DuelMatch.MatchState.ENDED);
         matchManager.endMatch(matchId);
 
-        if (arenaName != null) {
-            arenaManager.releaseArena(arenaName);
-        }
-
         broadcast(
                 match,
                 ChatColor.RED + "Match cancelled: " + reason
         );
+
+        if (arena != null) {
+            rollbackManager.restoreArena(
+                    arena,
+                    () -> arenaManager.releaseArena(arenaName)
+            );
+        } else if (arenaName != null) {
+            arenaManager.releaseArena(arenaName);
+        }
     }
 
     public void shutdown() {
@@ -322,6 +340,8 @@ public final class MatchPreparationManager {
             String arenaName =
                     matchManager.getArenaForMatch(matchId);
 
+            DuelArena arena = arenaManager.getArena(arenaName);
+
             if (match.getState()
                     != DuelMatch.MatchState.ENDING
                     && match.getState()
@@ -331,7 +351,12 @@ public final class MatchPreparationManager {
 
             matchManager.endMatch(matchId);
 
-            if (arenaName != null) {
+            if (arena != null) {
+                rollbackManager.restoreArena(
+                        arena,
+                        () -> arenaManager.releaseArena(arenaName)
+                );
+            } else if (arenaName != null) {
                 arenaManager.releaseArena(arenaName);
             }
         }
