@@ -15,6 +15,7 @@ public final class MatchmakingCoordinator {
     private final MatchmakingManager matchmaking;
     private final MatchManager matchManager;
     private final ArenaManager arenaManager;
+    private final ArenaRollbackManager rollbackManager;
     private final MatchPreparationManager preparationManager;
 
     private BukkitTask task;
@@ -25,17 +26,20 @@ public final class MatchmakingCoordinator {
             JavaPlugin plugin,
             MatchmakingManager matchmaking,
             MatchManager matchManager,
-            ArenaManager arenaManager
+            ArenaManager arenaManager,
+            ArenaRollbackManager rollbackManager
     ) {
         this.plugin = plugin;
         this.matchmaking = matchmaking;
         this.matchManager = matchManager;
         this.arenaManager = arenaManager;
+        this.rollbackManager = rollbackManager;
 
         this.preparationManager = new MatchPreparationManager(
                 plugin,
                 matchManager,
-                arenaManager
+                arenaManager,
+                rollbackManager
         );
 
         reloadSettings();
