@@ -24,6 +24,7 @@ public final class MatchDeathListener implements Listener {
     private final JavaPlugin plugin;
     private final MatchManager matchManager;
     private final ArenaManager arenaManager;
+    private final ArenaRollbackManager rollbackManager;
     private final StatsManager statsManager;
     private final DatabaseManager databaseManager;
 
@@ -63,6 +64,11 @@ public final class MatchDeathListener implements Listener {
         this.arenaManager = arenaManager;
         this.statsManager = statsManager;
         this.databaseManager = databaseManager;
+
+        this.rollbackManager =
+                plugin instanceof OblivionDuels duels
+                        ? duels.getRollbackManager()
+                        : null;
 
         Bukkit.getPluginManager().registerEvents(this, plugin);
     }
@@ -474,11 +480,25 @@ public final class MatchDeathListener implements Listener {
         matchManager.endMatch(match.getMatchId());
 
         if (arenaName != null) {
-            arenaManager.releaseArena(arenaName);
+
+            DuelArena arena = arenaManager.getArena(arenaName);
+
+            if (arena != null && rollbackManager != null) {
+
+                rollbackManager.restoreArena(
+                        arena,
+                        () -> arenaManager.releaseArena(arenaName)
+                );
+
+            } else {
+
+                arenaManager.releaseArena(arenaName);
+            }
         }
 
         plugin.getLogger().info(
-                "Match " + match.getMatchId() + " has ended."
+                "Match " + match.getMatchId()
+                        + " has ended. Arena restoration started."
         );
     }
 
