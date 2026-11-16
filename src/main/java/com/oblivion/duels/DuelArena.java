@@ -10,6 +10,12 @@ import java.util.regex.Pattern;
 
 public final class DuelArena {
 
+    private static final Pattern ARENA_NAME_PATTERN =
+            Pattern.compile(
+                    "^(1|2|3|4|5)v\\1(?:[-_ ]|$)",
+                    Pattern.CASE_INSENSITIVE
+            );
+
     private final String name;
     private final UUID worldId;
     private final int teamSize;
@@ -40,10 +46,8 @@ public final class DuelArena {
     }
 
     private int detectTeamSize(String arenaName) {
-        Matcher matcher = Pattern.compile(
-                "^(1|2|3|4|5)v\\1(?:[-_ ]|$)",
-                Pattern.CASE_INSENSITIVE
-        ).matcher(arenaName);
+        Matcher matcher =
+                ARENA_NAME_PATTERN.matcher(arenaName);
 
         if (!matcher.find()) {
             return 0;
@@ -112,8 +116,7 @@ public final class DuelArena {
         if (location == null
                 || location.getWorld() == null
                 || !location.getWorld().getUID().equals(worldId)
-                || corner1 == null
-                || corner2 == null) {
+                || !hasValidBounds()) {
             return false;
         }
 
@@ -134,14 +137,32 @@ public final class DuelArena {
                 && location.getZ() <= maxZ;
     }
 
+    public boolean hasValidBounds() {
+        if (!sameWorld(corner1) || !sameWorld(corner2)) {
+            return false;
+        }
+
+        double width = Math.abs(
+                corner1.getX() - corner2.getX()
+        );
+
+        double height = Math.abs(
+                corner1.getY() - corner2.getY()
+        );
+
+        double depth = Math.abs(
+                corner1.getZ() - corner2.getZ()
+        );
+
+        return width > 0
+                && height > 0
+                && depth > 0;
+    }
+
     public boolean isReady() {
-        return corner1 != null
-                && corner2 != null
-                && teamASpawn != null
-                && teamBSpawn != null
-                && spectatorSpawn != null
-                && sameWorld(corner1)
-                && sameWorld(corner2)
+        return teamSize >= 1
+                && teamSize <= 5
+                && hasValidBounds()
                 && sameWorld(teamASpawn)
                 && sameWorld(teamBSpawn)
                 && sameWorld(spectatorSpawn);
