@@ -3,6 +3,7 @@ package com.oblivion.duels;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -27,6 +28,9 @@ public final class MatchDeathListener implements Listener {
     private final DatabaseManager databaseManager;
 
     private final Map<UUID, Location> spectatorSpawns =
+            new HashMap<>();
+
+    private final Map<UUID, Location> exitSpawns =
             new HashMap<>();
 
     private final Map<UUID, Map<UUID, List<ItemStack>>> matchLoot =
@@ -358,14 +362,30 @@ public final class MatchDeathListener implements Listener {
 
         DuelArena arena = arenaManager.getArena(arenaName);
 
-        if (arena == null || arena.getSpectatorSpawn() == null) {
+        if (arena == null) {
             return;
         }
 
-        Location spawn = arena.getSpectatorSpawn();
+        Location spectatorSpawn = arena.getSpectatorSpawn();
 
-        if (spawn.getWorld() != null) {
-            spectatorSpawns.put(playerId, spawn.clone());
+        if (spectatorSpawn != null
+                && spectatorSpawn.getWorld() != null) {
+
+            spectatorSpawns.put(
+                    playerId,
+                    spectatorSpawn.clone()
+            );
+        }
+
+        Location exitSpawn = arena.getExitSpawn();
+
+        if (exitSpawn != null
+                && exitSpawn.getWorld() != null) {
+
+            exitSpawns.put(
+                    playerId,
+                    exitSpawn.clone()
+            );
         }
     }
 
@@ -449,6 +469,8 @@ public final class MatchDeathListener implements Listener {
 
         broadcast(match, message);
 
+        restoreParticipants(match);
+
         matchManager.endMatch(match.getMatchId());
 
         if (arenaName != null) {
@@ -458,6 +480,35 @@ public final class MatchDeathListener implements Listener {
         plugin.getLogger().info(
                 "Match " + match.getMatchId() + " has ended."
         );
+    }
+
+    private void restoreParticipants(DuelMatch match) {
+
+        Set<UUID> participants = new HashSet<>();
+
+        participants.addAll(match.getTeamA());
+        participants.addAll(match.getTeamB());
+
+        for (UUID playerId : participants) {
+
+            Player player = Bukkit.getPlayer(playerId);
+
+            if (player != null && player.isOnline()) {
+
+                player.setGameMode(GameMode.SURVIVAL);
+
+                Location exitSpawn = exitSpawns.get(playerId);
+
+                if (exitSpawn != null
+                        && exitSpawn.getWorld() != null) {
+                    player.teleport(exitSpawn);
+                }
+
+                spectatorSpawns.remove(playerId);
+                exitSpawns.remove(playerId);
+                eliminatedDisconnectedPlayers.remove(playerId);
+            }
+        }
     }
 
     private void cancelDisconnectTasks(DuelMatch match) {
@@ -642,21 +693,52 @@ public final class MatchDeathListener implements Listener {
         }
 
         if (eliminatedDisconnectedPlayers.remove(playerId)) {
+
             clearInventory(player);
 
-            Location spawn = spectatorSpawns.get(playerId);
+            DuelMatch currentMatch =
+                    matchManager.getMatchForPlayer(playerId);
 
-            if (spawn != null && spawn.getWorld() != null) {
-                player.teleport(spawn);
-                player.setGameMode(
-                        org.bukkit.GameMode.SPECTATOR
-                );
+            if (currentMatch != null
+                    && currentMatch.getState()
+                    == DuelMatch.MatchState.ACTIVE) {
+
+                Location spectatorSpawn =
+                        spectatorSpawns.get(playerId);
+
+                if (spectatorSpawn != null
+                        && spectatorSpawn.getWorld() != null) {
+
+                    player.teleport(spectatorSpawn);
+                    player.setGameMode(GameMode.SPECTATOR);
+                }
+
+            } else {
+
+                restorePlayerAfterMatch(player, playerId);
             }
         }
 
         disconnectedInventories.remove(playerId);
 
         deliverPendingLoot(player);
+    }
+
+    private void restorePlayerAfterMatch(
+            Player player,
+            UUID playerId
+    ) {
+
+        Location exitSpawn = exitSpawns.remove(playerId);
+
+        spectatorSpawns.remove(playerId);
+
+        player.setGameMode(GameMode.SURVIVAL);
+
+        if (exitSpawn != null
+                && exitSpawn.getWorld() != null) {
+            player.teleport(exitSpawn);
+        }
     }
 
     private void deliverPendingLoot(Player player) {
@@ -768,7 +850,7 @@ public final class MatchDeathListener implements Listener {
         UUID playerId = event.getPlayer().getUniqueId();
 
         Location spectatorSpawn =
-                spectatorSpawns.remove(playerId);
+                spectatorSpawns.get(playerId);
 
         if (spectatorSpawn != null
                 && spectatorSpawn.getWorld() != null) {
@@ -780,10 +862,10 @@ public final class MatchDeathListener implements Listener {
                     () -> {
                         Player player = event.getPlayer();
 
-                        if (player.isOnline()) {
-                            player.setGameMode(
-                                    org.bukkit.GameMode.SPECTATOR
-                            );
+                        if (player.isOnline()
+                                && spectatorSpawns.containsKey(playerId)) {
+
+                            player.setGameMode(GameMode.SPECTATOR);
                         }
                     }
             );
