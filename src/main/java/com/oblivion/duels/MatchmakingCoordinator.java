@@ -19,6 +19,8 @@ public final class MatchmakingCoordinator {
 
     private BukkitTask task;
 
+    private boolean matchmakingEnabled;
+
     public MatchmakingCoordinator(
             JavaPlugin plugin,
             MatchmakingManager matchmaking,
@@ -35,6 +37,8 @@ public final class MatchmakingCoordinator {
                 matchManager,
                 arenaManager
         );
+
+        reloadSettings();
     }
 
     public void start() {
@@ -59,7 +63,25 @@ public final class MatchmakingCoordinator {
         preparationManager.shutdown();
     }
 
+    /**
+     * Refreshes matchmaking settings from config.yml.
+     */
+    public void reloadSettings() {
+        matchmakingEnabled = plugin.getConfig().getBoolean(
+                "matchmaking.enabled",
+                true
+        );
+    }
+
+    public boolean isMatchmakingEnabled() {
+        return matchmakingEnabled;
+    }
+
     private void processQueues() {
+        if (!matchmakingEnabled) {
+            return;
+        }
+
         for (int teamSize = 1; teamSize <= 5; teamSize++) {
             try {
                 processQueue(teamSize);
@@ -118,7 +140,6 @@ public final class MatchmakingCoordinator {
                 return;
             }
 
-            // Wait for the next scheduled check if reservation fails.
             if (!arenaManager.reserveArena(arena.getName())) {
                 return;
             }
