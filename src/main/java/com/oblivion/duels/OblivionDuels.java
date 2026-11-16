@@ -66,7 +66,6 @@ public final class OblivionDuels extends JavaPlugin
         arenaSelection = new ArenaSelection(this);
         arenaManager = new ArenaManager(this);
 
-        // Registers itself as a Bukkit listener.
         matchDeathListener = new MatchDeathListener(
                 this,
                 matchManager,
@@ -75,7 +74,6 @@ public final class OblivionDuels extends JavaPlugin
                 databaseManager
         );
 
-        // Registers itself and starts its refresh task.
         duelMenu = new DuelMenu(this, matchmaking);
 
         matchmakingCoordinator = new MatchmakingCoordinator(
@@ -115,7 +113,6 @@ public final class OblivionDuels extends JavaPlugin
         }
 
         placeholderExpansion = new DuelPlaceholderExpansion();
-
         placeholderExpansion.register();
 
         getLogger().info(
@@ -142,6 +139,10 @@ public final class OblivionDuels extends JavaPlugin
 
         if (matchDeathListener != null) {
             matchDeathListener.shutdown();
+        }
+
+        if (arenaSelection != null) {
+            arenaSelection.shutdown();
         }
 
         if (placeholderExpansion != null) {
@@ -235,9 +236,6 @@ public final class OblivionDuels extends JavaPlugin
         }
     }
 
-    /**
-     * Shared queue validation for commands and menus.
-     */
     public boolean joinQueue(Player player, int teamSize) {
         if (player == null
                 || teamSize < 1
