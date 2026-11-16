@@ -66,7 +66,6 @@ public final class ArenaManager {
         }
 
         String key = normalizeName(arena.getName());
-
         DuelArena existing = arenas.get(key);
 
         if (existing != null
@@ -174,10 +173,7 @@ public final class ArenaManager {
             return;
         }
 
-        plugin.getConfig().set(
-                path + ".world",
-                world.getName()
-        );
+        plugin.getConfig().set(path + ".world", world.getName());
 
         saveLocation(path + ".corner1", arena.getCorner1());
         saveLocation(path + ".corner2", arena.getCorner2());
@@ -191,10 +187,7 @@ public final class ArenaManager {
         plugin.saveConfig();
     }
 
-    private void saveLocation(
-            String path,
-            Location location
-    ) {
+    private void saveLocation(String path, Location location) {
         if (location == null) {
             return;
         }
@@ -224,18 +217,30 @@ public final class ArenaManager {
         );
     }
 
-    public void loadArenas() {
-        arenas.clear();
-        occupiedArenas.clear();
-
+    /**
+     * Reloads arena definitions while preserving reservations.
+     * Arenas currently occupied by matches are never replaced.
+     */
+    public void reloadArenas() {
         ConfigurationSection section =
                 plugin.getConfig().getConfigurationSection("arenas");
 
         if (section == null) {
+            removeUnoccupiedArenas(new HashSet<>());
             return;
         }
 
+        Set<String> loadedKeys = new HashSet<>();
+
         for (String name : section.getKeys(false)) {
+            String key = normalizeName(name);
+
+            // Never replace an arena currently used by a match.
+            if (occupiedArenas.contains(key)) {
+                loadedKeys.add(key);
+                continue;
+            }
+
             ConfigurationSection arenaSection =
                     section.getConfigurationSection(name);
 
@@ -243,8 +248,7 @@ public final class ArenaManager {
                 continue;
             }
 
-            String worldName =
-                    arenaSection.getString("world");
+            String worldName = arenaSection.getString("world");
 
             World world = worldName == null
                     ? null
@@ -272,11 +276,6 @@ public final class ArenaManager {
             }
 
             if (!isValidTeamSize(arena.getTeamSize())) {
-                plugin.getLogger().warning(
-                        "Arena '" + name
-                                + "' was skipped because its name "
-                                + "does not specify a valid match size."
-                );
                 continue;
             }
 
@@ -308,10 +307,106 @@ public final class ArenaManager {
             ));
 
             if (arena.isReady()) {
-                arenas.put(
-                        normalizeName(name),
-                        arena
+                arenas.put(key, arena);
+                loadedKeys.add(key);
+            } else {
+                plugin.getLogger().warning(
+                        "Arena '" + name
+                                + "' is incomplete and was skipped."
                 );
+            }
+        }
+
+        removeUnoccupiedArenas(loadedKeys);
+
+        plugin.getLogger().info(
+                "Reloaded arena definitions. Loaded "
+                        + arenas.size() + " arena(s)."
+        );
+    }
+
+    private void removeUnoccupiedArenas(Set<String> loadedKeys) {
+        arenas.keySet().removeIf(key ->
+                !occupiedArenas.contains(key)
+                        && !loadedKeys.contains(key)
+        );
+    }
+
+    public void loadArenas() {
+        arenas.clear();
+        occupiedArenas.clear();
+
+        ConfigurationSection section =
+                plugin.getConfig().getConfigurationSection("arenas");
+
+        if (section == null) {
+            return;
+        }
+
+        for (String name : section.getKeys(false)) {
+            ConfigurationSection arenaSection =
+                    section.getConfigurationSection(name);
+
+            if (arenaSection == null) {
+                continue;
+            }
+
+            String worldName = arenaSection.getString("world");
+
+            World world = worldName == null
+                    ? null
+                    : Bukkit.getWorld(worldName);
+
+            if (world == null) {
+                plugin.getLogger().warning(
+                        "Arena '" + name
+                                + "' was skipped because its world "
+                                + "is unavailable."
+                );
+                continue;
+            }
+
+            DuelArena arena;
+
+            try {
+                arena = new DuelArena(name, world);
+            } catch (IllegalArgumentException exception) {
+                continue;
+            }
+
+            if (!isValidTeamSize(arena.getTeamSize())) {
+                continue;
+            }
+
+            arena.setCorner1(loadLocation(
+                    arenaSection.getConfigurationSection("corner1"),
+                    world
+            ));
+
+            arena.setCorner2(loadLocation(
+                    arenaSection.getConfigurationSection("corner2"),
+                    world
+            ));
+
+            arena.setTeamASpawn(loadLocation(
+                    arenaSection.getConfigurationSection("team-a-spawn"),
+                    world
+            ));
+
+            arena.setTeamBSpawn(loadLocation(
+                    arenaSection.getConfigurationSection("team-b-spawn"),
+                    world
+            ));
+
+            arena.setSpectatorSpawn(loadLocation(
+                    arenaSection.getConfigurationSection(
+                            "spectator-spawn"
+                    ),
+                    world
+            ));
+
+            if (arena.isReady()) {
+                arenas.put(normalizeName(name), arena);
             } else {
                 plugin.getLogger().warning(
                         "Arena '" + name
