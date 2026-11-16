@@ -2,23 +2,25 @@
 package com.oblivion.duels;
 
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.Particle;
 import org.bukkit.NamespacedKey;
+import org.bukkit.Particle;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -29,6 +31,8 @@ public final class ArenaSelection implements Listener {
 
     private final Map<UUID, Location> pos1 = new HashMap<>();
     private final Map<UUID, Location> pos2 = new HashMap<>();
+
+    private BukkitTask particleTask;
 
     public ArenaSelection(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -46,7 +50,8 @@ public final class ArenaSelection implements Listener {
 
         if (meta != null) {
             meta.setDisplayName("§5§lOblivion Arena Selector");
-            meta.setLore(java.util.List.of(
+
+            meta.setLore(List.of(
                     "§7Left-click: Position 1",
                     "§7Right-click: Position 2",
                     "§8OblivionDuels Arena Tool"
@@ -95,10 +100,17 @@ public final class ArenaSelection implements Listener {
 
         event.setCancelled(true);
 
-        Location location = event.getClickedBlock().getLocation();
+        if (event.getClickedBlock() == null) {
+            return;
+        }
+
+        Location location =
+                event.getClickedBlock().getLocation();
+
+        UUID playerId = player.getUniqueId();
 
         if (event.getAction() == Action.LEFT_CLICK_BLOCK) {
-            pos1.put(player.getUniqueId(), location);
+            pos1.put(playerId, location);
 
             player.sendMessage(
                     "§5[OblivionDuels] §aPosition 1 selected: "
@@ -106,13 +118,18 @@ public final class ArenaSelection implements Listener {
             );
 
         } else {
-            pos2.put(player.getUniqueId(), location);
+            pos2.put(playerId, location);
 
             player.sendMessage(
                     "§5[OblivionDuels] §aPosition 2 selected: "
                             + format(location)
             );
         }
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        clearSelection(event.getPlayer().getUniqueId());
     }
 
     private String format(Location location) {
@@ -122,28 +139,31 @@ public final class ArenaSelection implements Listener {
     }
 
     private void startParticleDisplay() {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                for (Player player : Bukkit.getOnlinePlayers()) {
+        particleTask = Bukkit.getScheduler().runTaskTimer(
+                plugin,
+                () -> {
+                    for (Player player : Bukkit.getOnlinePlayers()) {
+                        UUID id = player.getUniqueId();
 
-                    UUID id = player.getUniqueId();
+                        Location first = pos1.get(id);
+                        Location second = pos2.get(id);
 
-                    Location first = pos1.get(id);
-                    Location second = pos2.get(id);
+                        if (first == null || second == null) {
+                            continue;
+                        }
 
-                    if (first == null || second == null) {
-                        continue;
+                        if (first.getWorld() == null
+                                || second.getWorld() == null
+                                || !first.getWorld().equals(second.getWorld())) {
+                            continue;
+                        }
+
+                        displayBoundary(player, first, second);
                     }
-
-                    if (!first.getWorld().equals(second.getWorld())) {
-                        continue;
-                    }
-
-                    displayBoundary(player, first, second);
-                }
-            }
-        }.runTaskTimer(plugin, 20L, 20L);
+                },
+                20L,
+                20L
+        );
     }
 
     private void displayBoundary(
@@ -151,6 +171,13 @@ public final class ArenaSelection implements Listener {
             Location first,
             Location second
     ) {
+        World world = first.getWorld();
+
+        if (world == null
+                || !world.equals(player.getWorld())) {
+            return;
+        }
+
         int minX = Math.min(first.getBlockX(), second.getBlockX());
         int maxX = Math.max(first.getBlockX(), second.getBlockX());
 
@@ -160,29 +187,27 @@ public final class ArenaSelection implements Listener {
         int minZ = Math.min(first.getBlockZ(), second.getBlockZ());
         int maxZ = Math.max(first.getBlockZ(), second.getBlockZ());
 
-        // Display the 12 edges of the selected cuboid.
-        for (int x = minX; x <= maxX; x++) {
-            for (int y : new int[]{minY, maxY}) {
-                for (int z : new int[]{minZ, maxZ}) {
-                    spawnParticle(player, x, y, z);
-                }
-            }
+        int step = 2;
+
+        for (int x = minX; x <= maxX; x += step) {
+            spawnParticle(player, x, minY, minZ);
+            spawnParticle(player, x, minY, maxZ);
+            spawnParticle(player, x, maxY, minZ);
+            spawnParticle(player, x, maxY, maxZ);
         }
 
-        for (int z = minZ; z <= maxZ; z++) {
-            for (int y : new int[]{minY, maxY}) {
-                for (int x : new int[]{minX, maxX}) {
-                    spawnParticle(player, x, y, z);
-                }
-            }
+        for (int z = minZ; z <= maxZ; z += step) {
+            spawnParticle(player, minX, minY, z);
+            spawnParticle(player, minX, maxY, z);
+            spawnParticle(player, maxX, minY, z);
+            spawnParticle(player, maxX, maxY, z);
         }
 
-        for (int y = minY; y <= maxY; y++) {
-            for (int x : new int[]{minX, maxX}) {
-                for (int z : new int[]{minZ, maxZ}) {
-                    spawnParticle(player, x, y, z);
-                }
-            }
+        for (int y = minY; y <= maxY; y += step) {
+            spawnParticle(player, minX, y, minZ);
+            spawnParticle(player, minX, y, maxZ);
+            spawnParticle(player, maxX, y, minZ);
+            spawnParticle(player, maxX, y, maxZ);
         }
     }
 
@@ -223,5 +248,15 @@ public final class ArenaSelection implements Listener {
     public void clearSelection(UUID playerId) {
         pos1.remove(playerId);
         pos2.remove(playerId);
+    }
+
+    public void shutdown() {
+        if (particleTask != null) {
+            particleTask.cancel();
+            particleTask = null;
+        }
+
+        pos1.clear();
+        pos2.clear();
     }
 }
