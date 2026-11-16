@@ -67,9 +67,6 @@ public final class MatchmakingCoordinator {
         preparationManager.shutdown();
     }
 
-    /**
-     * Refreshes matchmaking settings from config.yml.
-     */
     public void reloadSettings() {
         matchmakingEnabled = plugin.getConfig().getBoolean(
                 "matchmaking.enabled",
@@ -149,6 +146,7 @@ public final class MatchmakingCoordinator {
             }
 
             DuelMatch match = null;
+            boolean preparationStarted = false;
 
             try {
                 match = matchManager.createMatch(
@@ -178,6 +176,8 @@ public final class MatchmakingCoordinator {
                     return;
                 }
 
+                preparationStarted = true;
+
                 boolean prepared =
                         preparationManager.prepareMatch(match, arena);
 
@@ -198,7 +198,16 @@ public final class MatchmakingCoordinator {
                     matchManager.endMatch(match.getMatchId());
                 }
 
-                arenaManager.releaseArena(arena.getName());
+                if (preparationStarted) {
+                    rollbackManager.restoreArena(
+                            arena,
+                            () -> arenaManager.releaseArena(
+                                    arena.getName()
+                            )
+                    );
+                } else {
+                    arenaManager.releaseArena(arena.getName());
+                }
 
                 plugin.getLogger().severe(
                         "Could not create or prepare duel match: "
