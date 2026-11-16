@@ -107,7 +107,7 @@ public final class OblivionDuels extends JavaPlugin
 
             getLogger().info(
                     "PlaceholderAPI not found. "
-                    + "Placeholder support disabled."
+                            + "Placeholder support disabled."
             );
             return;
         }
@@ -327,6 +327,9 @@ public final class OblivionDuels extends JavaPlugin
             sender.sendMessage(ChatColor.GRAY
                     + "/duels arena");
 
+            sender.sendMessage(ChatColor.GRAY
+                    + "/duels reload");
+
             return true;
         }
 
@@ -421,7 +424,6 @@ public final class OblivionDuels extends JavaPlugin
                     }
 
                     UUID playerId = player.getUniqueId();
-
                     DuelArena arena = pendingArenas.get(playerId);
 
                     if (arena == null) {
@@ -474,7 +476,6 @@ public final class OblivionDuels extends JavaPlugin
                     }
 
                     String team = args[2].toLowerCase(Locale.ROOT);
-
                     Location location = player.getLocation();
 
                     if (team.equals("a")) {
@@ -510,9 +511,7 @@ public final class OblivionDuels extends JavaPlugin
                         return true;
                     }
 
-                    arena.setSpectatorSpawn(
-                            player.getLocation()
-                    );
+                    arena.setSpectatorSpawn(player.getLocation());
 
                     player.sendMessage(prefix + ChatColor.GREEN
                             + "Spectator spawn saved.");
@@ -527,7 +526,6 @@ public final class OblivionDuels extends JavaPlugin
                     }
 
                     UUID playerId = player.getUniqueId();
-
                     DuelArena arena = pendingArenas.get(playerId);
 
                     if (arena == null) {
@@ -543,7 +541,11 @@ public final class OblivionDuels extends JavaPlugin
                         return true;
                     }
 
-                    arenaManager.saveArena(arena);
+                    if (!arenaManager.registerArena(arena)) {
+                        player.sendMessage(prefix + ChatColor.RED
+                                + "Could not register this arena.");
+                        return true;
+                    }
 
                     pendingArenas.remove(playerId);
                     arenaSelection.clearSelection(playerId);
@@ -642,6 +644,11 @@ public final class OblivionDuels extends JavaPlugin
 
                 sender.sendMessage(ChatColor.GRAY
                         + "Available arenas: " + ChatColor.WHITE
+                        + arenaManager.getAvailableArenaCount(1)
+                        + " (1v1)");
+
+                sender.sendMessage(ChatColor.GRAY
+                        + "Total arenas: " + ChatColor.WHITE
                         + arenaManager.getArenaCount());
 
                 return true;
@@ -656,9 +663,10 @@ public final class OblivionDuels extends JavaPlugin
 
                 reloadConfig();
                 updatePrefix();
+                arenaManager.reloadArenas();
 
                 sender.sendMessage(prefix + ChatColor.GREEN
-                        + "Configuration reloaded.");
+                        + "Configuration and arena data reloaded safely.");
 
                 return true;
             }
