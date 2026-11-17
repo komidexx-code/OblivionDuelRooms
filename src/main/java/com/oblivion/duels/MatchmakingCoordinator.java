@@ -1,4 +1,3 @@
-
 package com.oblivion.duels;
 
 import org.bukkit.Bukkit;
@@ -65,6 +64,10 @@ public final class MatchmakingCoordinator {
         }
 
         preparationManager.shutdown();
+    }
+
+    public MatchPreparationManager getPreparationManager() {
+        return preparationManager;
     }
 
     public void reloadSettings() {
