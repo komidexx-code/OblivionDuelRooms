@@ -7,6 +7,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.Sound;
+import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -25,6 +26,11 @@ public final class OblivionDuels extends JavaPlugin
 
     private static final Pattern HEX_PATTERN =
             Pattern.compile("&#([A-Fa-f0-9]{6})");
+
+    private static final String BLUE = "&#0062FF";
+    private static final String SECONDARY = "&#3185FF";
+    private static final String INFO = "&#65A6FF";
+    private static final String DESCRIPTION = "&#A5CCFF";
 
     private String prefix;
 
@@ -45,6 +51,9 @@ public final class OblivionDuels extends JavaPlugin
     private DuelPlaceholderExpansion placeholderExpansion;
 
     private final Map<UUID, DuelArena> pendingArenas =
+            new HashMap<>();
+
+    private final Map<UUID, String> pendingArenaDeletions =
             new HashMap<>();
 
     @Override
@@ -136,10 +145,9 @@ public final class OblivionDuels extends JavaPlugin
     }
 
     private void updatePrefix() {
-        prefix = color(getConfig().getString(
-                "settings.prefix",
-                "&8[&5OblivionDuels&8] "
-        ));
+        prefix = color(
+                "&#0062FF[ᴏʙʟɪᴠɪᴏɴᴅᴜᴇʟs] "
+        );
     }
 
     public String getPrefix() {
@@ -155,6 +163,10 @@ public final class OblivionDuels extends JavaPlugin
             String fallback
     ) {
         return prefix + getMessage(path, fallback);
+    }
+
+    private void sendMessage(CommandSender sender, String message) {
+        sender.sendMessage(prefix + color(message));
     }
 
     // ==========================================
@@ -364,15 +376,235 @@ public final class OblivionDuels extends JavaPlugin
     // ==========================================
 
     private void sendArenaHelp(CommandSender sender) {
-        sender.sendMessage(prefix + color("&bᴬʀᴇɴᴀ ᴄᴏᴍᴍᴀɴᴅs:"));
+        sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
+        sender.sendMessage(color(BLUE + "ᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs &8» " + SECONDARY + "ᴀʀᴇɴᴀ ʜᴇʟᴘ"));
+        sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
 
-        sender.sendMessage(color("&7/duels arena create <name>"));
-        sender.sendMessage(color("&7/duels arena setregion"));
-        sender.sendMessage(color("&7/duels arena setspawn <a|b>"));
-        sender.sendMessage(color("&7/duels arena setspectator"));
-        sender.sendMessage(color("&7/duels arena wand"));
-        sender.sendMessage(color("&7/duels arena save"));
-        sender.sendMessage(color("&7/duels setexit <arena>"));
+        sender.sendMessage(color(INFO + "ᴀʀᴇɴᴀ sᴇᴛᴜᴘ ᴏʀᴅᴇʀ"));
+        sender.sendMessage(color(DESCRIPTION + "1. " + SECONDARY + "/duels arena create <name>"));
+        sender.sendMessage(color(DESCRIPTION + "2. " + SECONDARY + "/duels arena wand"));
+        sender.sendMessage(color(DESCRIPTION + "3. " + SECONDARY + "Select both corners with the wand."));
+        sender.sendMessage(color(DESCRIPTION + "4. " + SECONDARY + "/duels arena setregion"));
+        sender.sendMessage(color(DESCRIPTION + "5. " + SECONDARY + "/duels arena setspawn a"));
+        sender.sendMessage(color(DESCRIPTION + "6. " + SECONDARY + "/duels arena setspawn b"));
+        sender.sendMessage(color(DESCRIPTION + "7. " + SECONDARY + "/duels arena setspectator"));
+        sender.sendMessage(color(DESCRIPTION + "8. " + SECONDARY + "/duels arena save"));
+
+        sender.sendMessage(color(INFO + "ᴏᴘᴛɪᴏɴᴀʟ"));
+        sender.sendMessage(color(DESCRIPTION + "/duels setexit <arena>"));
+
+        sender.sendMessage(color(INFO + "ᴀʀᴇɴᴀ ᴍᴀɴᴀɢᴇᴍᴇɴᴛ"));
+        sender.sendMessage(color(DESCRIPTION + "/duels arena list"));
+        sender.sendMessage(color(DESCRIPTION + "/duels arena info <name>"));
+        sender.sendMessage(color(DESCRIPTION + "/duels arena delete <name>"));
+
+        sender.sendMessage(color(INFO + "ᴅᴇʟᴇᴛɪᴏɴ"));
+        sender.sendMessage(color(DESCRIPTION + "/duels arena delete confirm"));
+        sender.sendMessage(color(DESCRIPTION + "/duels arena delete cancel"));
+
+        sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
+    }
+
+    // ==========================================
+    // ARENA LIST
+    // ==========================================
+
+    private void sendArenaList(CommandSender sender) {
+        sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
+        sender.sendMessage(color(BLUE + "ᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs &8» " + SECONDARY + "ᴀʀᴇɴᴀs"));
+        sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
+
+        if (arenaManager.getArenaNames().isEmpty()) {
+            sender.sendMessage(color(INFO + "No registered arenas found."));
+            sender.sendMessage(color(DESCRIPTION + "Create one using /duels arena create <name>."));
+            sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
+            return;
+        }
+
+        for (String name : arenaManager.getArenaNames()) {
+            DuelArena arena = arenaManager.getArena(name);
+
+            if (arena == null) {
+                continue;
+            }
+
+            String status = arenaManager.isOccupied(name)
+                    ? "&#FF5555ᴏᴄᴄᴜᴘɪᴇᴅ"
+                    : "&#55FFAAᴀᴠᴀɪʟᴀʙʟᴇ";
+
+            sender.sendMessage(color(
+                    SECONDARY + "• " + INFO + arena.getName()
+                            + " " + DESCRIPTION + "("
+                            + arena.getTeamSize() + "v"
+                            + arena.getTeamSize() + ") "
+                            + status
+            ));
+        }
+
+        sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
+        sender.sendMessage(color(DESCRIPTION + "Total: " + INFO + arenaManager.getArenaCount()));
+    }
+
+    // ==========================================
+    // ARENA INFO
+    // ==========================================
+
+    private String locationStatus(Location location) {
+        return location == null
+                ? "&#FF5555ɴᴏᴛ sᴇᴛ"
+                : "&#55FFAA sᴇᴛ";
+    }
+
+    private void sendArenaInfo(CommandSender sender, String name) {
+        DuelArena arena = arenaManager.getArena(name);
+
+        if (arena == null) {
+            sendMessage(sender, "&cArena not found: " + name);
+            return;
+        }
+
+        World world = Bukkit.getWorld(arena.getWorldId());
+
+        String status = arenaManager.isOccupied(name)
+                ? "&#FF5555ᴏᴄᴄᴜᴘɪᴇᴅ"
+                : arena.isReady()
+                ? "&#55FFAAʀᴇᴀᴅʏ"
+                : "&#FFAA55ɪɴᴄᴏᴍᴘʟᴇᴛᴇ";
+
+        sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
+        sender.sendMessage(color(BLUE + "ᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs &8» " + SECONDARY + "ᴀʀᴇɴᴀ ɪɴғᴏ"));
+        sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
+
+        sender.sendMessage(color(INFO + "ɴᴀᴍᴇ: " + DESCRIPTION + arena.getName()));
+        sender.sendMessage(color(INFO + "ᴡᴏʀʟᴅ: " + DESCRIPTION
+                + (world == null ? "Unknown" : world.getName())));
+        sender.sendMessage(color(INFO + "ᴍᴏᴅᴇ: " + DESCRIPTION
+                + arena.getTeamSize() + "v" + arena.getTeamSize()));
+        sender.sendMessage(color(INFO + "sᴛᴀᴛᴜs: " + status));
+
+        sender.sendMessage(color(SECONDARY + "ʟᴏᴄᴀᴛɪᴏɴs"));
+        sender.sendMessage(color(DESCRIPTION + "Region: " + locationStatus(arena.getCorner1())
+                + " / " + locationStatus(arena.getCorner2())));
+        sender.sendMessage(color(DESCRIPTION + "Team A spawn: "
+                + locationStatus(arena.getTeamASpawn())));
+        sender.sendMessage(color(DESCRIPTION + "Team B spawn: "
+                + locationStatus(arena.getTeamBSpawn())));
+        sender.sendMessage(color(DESCRIPTION + "Spectator spawn: "
+                + locationStatus(arena.getSpectatorSpawn())));
+        sender.sendMessage(color(DESCRIPTION + "Exit spawn: "
+                + locationStatus(arena.getExitSpawn())));
+
+        sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
+    }
+
+    // ==========================================
+    // ARENA DELETE CONFIRMATION
+    // ==========================================
+
+    private void handleArenaDelete(
+            CommandSender sender,
+            String[] args
+    ) {
+        if (args.length < 3) {
+            sendMessage(sender, "&cUsage: /duels arena delete <name>");
+            return;
+        }
+
+        String target = args[2].toLowerCase(Locale.ROOT);
+
+        if (target.equals("cancel")) {
+            if (!(sender instanceof Player player)) {
+                sender.sendMessage("Players only.");
+                return;
+            }
+
+            String pending = pendingArenaDeletions.remove(
+                    player.getUniqueId()
+            );
+
+            if (pending == null) {
+                sendMessage(sender, "&cYou have no pending arena deletion.");
+                return;
+            }
+
+            sendMessage(sender, "&aArena deletion cancelled.");
+            return;
+        }
+
+        if (target.equals("confirm")) {
+            if (!(sender instanceof Player player)) {
+                sender.sendMessage("Players only.");
+                return;
+            }
+
+            UUID playerId = player.getUniqueId();
+
+            String pending = pendingArenaDeletions.remove(playerId);
+
+            if (pending == null) {
+                sendMessage(sender, "&cYou have no pending arena deletion.");
+                return;
+            }
+
+            DuelArena arena = arenaManager.getArena(pending);
+
+            if (arena == null) {
+                sendMessage(sender, "&cThat arena no longer exists.");
+                return;
+            }
+
+            if (arenaManager.isOccupied(arena.getName())) {
+                sendMessage(sender, "&cYou cannot delete an occupied arena.");
+                return;
+            }
+
+            if (!arenaManager.deleteArena(arena.getName())) {
+                sendMessage(sender, "&cCould not delete that arena.");
+                return;
+            }
+
+            pendingArenas.entrySet().removeIf(
+                    entry -> entry.getValue() == arena
+            );
+
+            sendMessage(sender, "&aArena &f" + arena.getName()
+                    + " &ahas been deleted.");
+
+            return;
+        }
+
+        String arenaName = args[2];
+        DuelArena arena = arenaManager.getArena(arenaName);
+
+        if (arena == null) {
+            sendMessage(sender, "&cArena not found: " + arenaName);
+            return;
+        }
+
+        if (arenaManager.isOccupied(arena.getName())) {
+            sendMessage(sender, "&cThat arena is currently occupied.");
+            return;
+        }
+
+        if (sender instanceof Player player) {
+            pendingArenaDeletions.put(
+                    player.getUniqueId(),
+                    arena.getName()
+            );
+        } else {
+            sendMessage(sender, "&cDeletion confirmation requires a player.");
+            return;
+        }
+
+        sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
+        sender.sendMessage(color("&#FF5555ᴄᴏɴғɪʀᴍ ᴀʀᴇɴᴀ ᴅᴇʟᴇᴛɪᴏɴ"));
+        sender.sendMessage(color(DESCRIPTION + "Arena: " + INFO + arena.getName()));
+        sender.sendMessage(color(DESCRIPTION + "This action cannot be undone."));
+        sender.sendMessage(color(DESCRIPTION + "Type " + SECONDARY
+                + "/duels arena delete confirm"));
+        sender.sendMessage(color(DESCRIPTION + "or " + SECONDARY
+                + "/duels arena delete cancel"));
+        sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
     }
 
     // ==========================================
@@ -389,16 +621,17 @@ public final class OblivionDuels extends JavaPlugin
         if (args.length == 0
                 || args[0].equalsIgnoreCase("help")) {
 
-            sender.sendMessage(prefix + color("&b&lᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs ᴄᴏᴍᴍᴀɴᴅs"));
-
-            sender.sendMessage(color("&7/duels menu"));
-            sender.sendMessage(color("&7/duels join <1v1|2v2|3v3|4v4|5v5>"));
-            sender.sendMessage(color("&7/duels leave"));
-            sender.sendMessage(color("&7/duels queue"));
-            sender.sendMessage(color("&7/duels status"));
-            sender.sendMessage(color("&7/duels arena"));
-            sender.sendMessage(color("&7/duels setexit <arena>"));
-            sender.sendMessage(color("&7/duels reload"));
+            sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
+            sender.sendMessage(color(BLUE + "ᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs ᴄᴏᴍᴍᴀɴᴅs"));
+            sender.sendMessage(color(DESCRIPTION + "/duels menu"));
+            sender.sendMessage(color(DESCRIPTION + "/duels join <1v1|2v2|3v3|4v4|5v5>"));
+            sender.sendMessage(color(DESCRIPTION + "/duels leave"));
+            sender.sendMessage(color(DESCRIPTION + "/duels queue"));
+            sender.sendMessage(color(DESCRIPTION + "/duels status"));
+            sender.sendMessage(color(DESCRIPTION + "/duels arena help"));
+            sender.sendMessage(color(DESCRIPTION + "/duels setexit <arena>"));
+            sender.sendMessage(color(DESCRIPTION + "/duels reload"));
+            sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
 
             return true;
         }
@@ -419,7 +652,7 @@ public final class OblivionDuels extends JavaPlugin
 
             case "setexit": {
                 if (!isAdmin(sender)) {
-                    sender.sendMessage(prefix + color("&cYou don't have permission."));
+                    sendMessage(sender, "&cYou don't have permission.");
                     return true;
                 }
 
@@ -429,30 +662,29 @@ public final class OblivionDuels extends JavaPlugin
                 }
 
                 if (args.length < 2) {
-                    player.sendMessage(prefix + color("&cUsage: /duels setexit <arena>"));
+                    sendMessage(player, "&cUsage: /duels setexit <arena>");
                     return true;
                 }
 
                 DuelArena arena = arenaManager.getArena(args[1]);
 
                 if (arena == null) {
-                    player.sendMessage(prefix + color("&cArena not found: " + args[1]));
+                    sendMessage(player, "&cArena not found: " + args[1]);
                     return true;
                 }
 
                 arena.setExitSpawn(player.getLocation());
                 arenaManager.saveArena(arena);
 
-                player.sendMessage(prefix + color(
-                        "&aExit spawn saved for arena " + arena.getName() + "!"
-                ));
+                sendMessage(player, "&aExit spawn saved for arena "
+                        + arena.getName() + "!");
 
                 return true;
             }
 
             case "arena": {
                 if (!isAdmin(sender)) {
-                    sender.sendMessage(prefix + color("&cYou don't have permission."));
+                    sendMessage(sender, "&cYou don't have permission.");
                     return true;
                 }
 
@@ -462,6 +694,31 @@ public final class OblivionDuels extends JavaPlugin
                 }
 
                 String action = args[1].toLowerCase(Locale.ROOT);
+
+                if (action.equals("help")) {
+                    sendArenaHelp(sender);
+                    return true;
+                }
+
+                if (action.equals("list")) {
+                    sendArenaList(sender);
+                    return true;
+                }
+
+                if (action.equals("info")) {
+                    if (args.length < 3) {
+                        sendMessage(sender, "&cUsage: /duels arena info <name>");
+                        return true;
+                    }
+
+                    sendArenaInfo(sender, args[2]);
+                    return true;
+                }
+
+                if (action.equals("delete")) {
+                    handleArenaDelete(sender, args);
+                    return true;
+                }
 
                 if (action.equals("wand")) {
                     if (!(sender instanceof Player player)) {
@@ -473,7 +730,7 @@ public final class OblivionDuels extends JavaPlugin
                             arenaSelection.createWand()
                     );
 
-                    player.sendMessage(prefix + color("&aArena selection wand given."));
+                    sendMessage(player, "&aArena selection wand given.");
                     return true;
                 }
 
@@ -484,7 +741,7 @@ public final class OblivionDuels extends JavaPlugin
                     }
 
                     if (args.length < 3) {
-                        player.sendMessage(prefix + color("&cUsage: /duels arena create <name>"));
+                        sendMessage(player, "&cUsage: /duels arena create <name>");
                         return true;
                     }
 
@@ -494,7 +751,7 @@ public final class OblivionDuels extends JavaPlugin
                             name,
                             player.getWorld()
                     )) {
-                        player.sendMessage(prefix + color("&cCould not create that arena."));
+                        sendMessage(player, "&cCould not create that arena.");
                         return true;
                     }
 
@@ -505,11 +762,12 @@ public final class OblivionDuels extends JavaPlugin
                             arena
                     );
 
-                    player.sendMessage(prefix + color("&aCreated arena " + name + "."));
+                    sendMessage(player, "&aCreated arena " + name + ".");
 
                     player.sendMessage(color(
-                            "&eSelect two corners with your wand, "
-                                    + "then use /duels arena setregion."
+                            DESCRIPTION + "Next: use your wand to select "
+                                    + "two corners, then run "
+                                    + SECONDARY + "/duels arena setregion"
                     ));
 
                     return true;
@@ -525,12 +783,12 @@ public final class OblivionDuels extends JavaPlugin
                     DuelArena arena = pendingArenas.get(playerId);
 
                     if (arena == null) {
-                        player.sendMessage(prefix + color("&cCreate an arena first."));
+                        sendMessage(player, "&cCreate an arena first.");
                         return true;
                     }
 
                     if (!arenaSelection.hasSelection(playerId)) {
-                        player.sendMessage(prefix + color("&cSelect both corners first."));
+                        sendMessage(player, "&cSelect both corners first.");
                         return true;
                     }
 
@@ -543,7 +801,7 @@ public final class OblivionDuels extends JavaPlugin
                     arena.setCorner1(pos1);
                     arena.setCorner2(pos2);
 
-                    player.sendMessage(prefix + color("&aArena region selected."));
+                    sendMessage(player, "&aArena region selected.");
                     return true;
                 }
 
@@ -554,7 +812,7 @@ public final class OblivionDuels extends JavaPlugin
                     }
 
                     if (args.length < 3) {
-                        player.sendMessage(prefix + color("&cUsage: /duels arena setspawn <a|b>"));
+                        sendMessage(player, "&cUsage: /duels arena setspawn <a|b>");
                         return true;
                     }
 
@@ -563,7 +821,7 @@ public final class OblivionDuels extends JavaPlugin
                     );
 
                     if (arena == null) {
-                        player.sendMessage(prefix + color("&cCreate an arena first."));
+                        sendMessage(player, "&cCreate an arena first.");
                         return true;
                     }
 
@@ -575,14 +833,13 @@ public final class OblivionDuels extends JavaPlugin
                     } else if (team.equals("b")) {
                         arena.setTeamBSpawn(location);
                     } else {
-                        player.sendMessage(prefix + color("&cUse a or b."));
+                        sendMessage(player, "&cUse a or b.");
                         return true;
                     }
 
-                    player.sendMessage(prefix + color(
-                            "&aTeam " + team.toUpperCase(Locale.ROOT)
-                                    + " spawn saved."
-                    ));
+                    sendMessage(player, "&aTeam "
+                            + team.toUpperCase(Locale.ROOT)
+                            + " spawn saved.");
 
                     return true;
                 }
@@ -598,13 +855,13 @@ public final class OblivionDuels extends JavaPlugin
                     );
 
                     if (arena == null) {
-                        player.sendMessage(prefix + color("&cCreate an arena first."));
+                        sendMessage(player, "&cCreate an arena first.");
                         return true;
                     }
 
                     arena.setSpectatorSpawn(player.getLocation());
 
-                    player.sendMessage(prefix + color("&aSpectator spawn saved."));
+                    sendMessage(player, "&aSpectator spawn saved.");
                     return true;
                 }
 
@@ -618,27 +875,27 @@ public final class OblivionDuels extends JavaPlugin
                     DuelArena arena = pendingArenas.get(playerId);
 
                     if (arena == null) {
-                        player.sendMessage(prefix + color("&cCreate an arena first."));
+                        sendMessage(player, "&cCreate an arena first.");
                         return true;
                     }
 
                     if (!arena.isReady()) {
-                        player.sendMessage(prefix + color(
+                        sendMessage(player,
                                 "&cArena is incomplete. Set its region, "
                                         + "both team spawns, and spectator spawn."
-                        ));
+                        );
                         return true;
                     }
 
                     if (!arenaManager.registerArena(arena)) {
-                        player.sendMessage(prefix + color("&cCould not register this arena."));
+                        sendMessage(player, "&cCould not register this arena.");
                         return true;
                     }
 
                     pendingArenas.remove(playerId);
                     arenaSelection.clearSelection(playerId);
 
-                    player.sendMessage(prefix + color("&aArena saved successfully!"));
+                    sendMessage(player, "&aArena saved successfully!");
                     return true;
                 }
 
@@ -653,9 +910,9 @@ public final class OblivionDuels extends JavaPlugin
                 }
 
                 if (args.length < 2) {
-                    player.sendMessage(prefix + color(
+                    sendMessage(player,
                             "&cUsage: /duels join <1v1|2v2|3v3|4v4|5v5>"
-                    ));
+                    );
                     return true;
                 }
 
@@ -671,9 +928,9 @@ public final class OblivionDuels extends JavaPlugin
                 };
 
                 if (teamSize == 0) {
-                    player.sendMessage(prefix + color(
+                    sendMessage(player,
                             "&cInvalid mode. Use 1v1, 2v2, 3v3, 4v4, or 5v5."
-                    ));
+                    );
                     return true;
                 }
 
@@ -699,46 +956,50 @@ public final class OblivionDuels extends JavaPlugin
                     return true;
                 }
 
-                player.sendMessage(prefix + color("&cYou are not in a queue."));
+                sendMessage(player, "&cYou are not in a queue.");
                 return true;
             }
 
             case "queue": {
-                sender.sendMessage(prefix + color("&b&lǫᴜᴇᴜᴇ sᴛᴀᴛᴜs:"));
+                sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
+                sender.sendMessage(color(BLUE + "ᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs &8» " + SECONDARY + "ǫᴜᴇᴜᴇ sᴛᴀᴛᴜs"));
 
                 for (int size = 1; size <= 5; size++) {
-                    sender.sendMessage(color("&7"
+                    sender.sendMessage(color(INFO
                             + size + "v" + size + ": "
-                            + "&f"
+                            + DESCRIPTION
                             + matchmaking.getQueueSize(size)
                             + "/" + (size * 2)));
                 }
 
+                sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
                 return true;
             }
 
             case "status": {
-                sender.sendMessage(prefix + color("&b&lᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs sᴛᴀᴛᴜs"));
+                sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
+                sender.sendMessage(color(BLUE + "ᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs sᴛᴀᴛᴜs"));
 
-                sender.sendMessage(color("&7Active matches: &f"
-                        + matchManager.getActiveMatchCount()));
+                sender.sendMessage(color(INFO + "Active matches: "
+                        + DESCRIPTION + matchManager.getActiveMatchCount()));
 
-                sender.sendMessage(color("&7Players in matches: &f"
-                        + matchManager.getActivePlayerCount()));
+                sender.sendMessage(color(INFO + "Players in matches: "
+                        + DESCRIPTION + matchManager.getActivePlayerCount()));
 
-                sender.sendMessage(color("&7Available arenas: &f"
-                        + arenaManager.getAvailableArenaCount(1)
+                sender.sendMessage(color(INFO + "Available arenas: "
+                        + DESCRIPTION + arenaManager.getAvailableArenaCount(1)
                         + " (1v1)"));
 
-                sender.sendMessage(color("&7Total arenas: &f"
-                        + arenaManager.getArenaCount()));
+                sender.sendMessage(color(INFO + "Total arenas: "
+                        + DESCRIPTION + arenaManager.getArenaCount()));
 
+                sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
                 return true;
             }
 
             case "reload": {
                 if (!isAdmin(sender)) {
-                    sender.sendMessage(prefix + color("&cYou don't have permission."));
+                    sendMessage(sender, "&cYou don't have permission.");
                     return true;
                 }
 
@@ -747,19 +1008,16 @@ public final class OblivionDuels extends JavaPlugin
                 arenaManager.reloadArenas();
                 matchmakingCoordinator.reloadSettings();
 
-                sender.sendMessage(prefix + color(
+                sendMessage(sender,
                         "&aConfiguration, matchmaking settings, "
                                 + "and arena data reloaded safely."
-                ));
+                );
 
                 return true;
             }
 
             default: {
-                sender.sendMessage(prefix + color(
-                        "&cUnknown command. Use /duels help."
-                ));
-
+                sendMessage(sender, "&cUnknown command. Use /duels help.");
                 return true;
             }
         }
