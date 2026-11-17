@@ -14,8 +14,16 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class ArenaManager {
+
+    private static final Pattern LEGACY_ARENA_PATTERN =
+            Pattern.compile(
+                    "^(1|2|3|4|5)v\\1(?:[-_ ]|$).*",
+                    Pattern.CASE_INSENSITIVE
+            );
 
     private final JavaPlugin plugin;
 
@@ -40,10 +48,6 @@ public final class ArenaManager {
         try {
             arena = new DuelArena(name, world);
         } catch (IllegalArgumentException exception) {
-            return false;
-        }
-
-        if (!isValidTeamSize(arena.getTeamSize())) {
             return false;
         }
 
@@ -92,15 +96,37 @@ public final class ArenaManager {
             return false;
         }
 
-        if (!arenas.containsKey(key)) {
+        DuelArena arena = arenas.remove(key);
+
+        if (arena == null) {
             return false;
         }
 
-        arenas.remove(key);
-        plugin.getConfig().set("arenas." + name, null);
-        plugin.saveConfig();
+        String configName = findConfigArenaName(name);
+
+        if (configName != null) {
+            plugin.getConfig().set("arenas." + configName, null);
+            plugin.saveConfig();
+        }
 
         return true;
+    }
+
+    private String findConfigArenaName(String name) {
+        ConfigurationSection section =
+                plugin.getConfig().getConfigurationSection("arenas");
+
+        if (section == null) {
+            return null;
+        }
+
+        for (String existingName : section.getKeys(false)) {
+            if (normalizeName(existingName).equals(normalizeName(name))) {
+                return existingName;
+            }
+        }
+
+        return null;
     }
 
     public boolean arenaExists(String name) {
@@ -120,6 +146,27 @@ public final class ArenaManager {
 
     public boolean isValidTeamSize(int teamSize) {
         return teamSize >= 1 && teamSize <= 5;
+    }
+
+    public boolean setArenaTeamSize(String name, int teamSize) {
+        if (name == null || name.isBlank()
+                || !isValidTeamSize(teamSize)) {
+            return false;
+        }
+
+        DuelArena arena = getArena(name);
+
+        if (arena == null || isOccupied(name)) {
+            return false;
+        }
+
+        arena.setTeamSize(teamSize);
+
+        if (arena.isReady()) {
+            saveArena(arena);
+        }
+
+        return true;
     }
 
     private String normalizeName(String name) {
@@ -212,15 +259,18 @@ public final class ArenaManager {
         }
 
         plugin.getConfig().set(path + ".world", world.getName());
+        plugin.getConfig().set(path + ".team-size", arena.getTeamSize());
 
         saveLocation(path + ".corner1", arena.getCorner1());
         saveLocation(path + ".corner2", arena.getCorner2());
         saveLocation(path + ".team-a-spawn", arena.getTeamASpawn());
         saveLocation(path + ".team-b-spawn", arena.getTeamBSpawn());
+
         saveLocation(
                 path + ".spectator-spawn",
                 arena.getSpectatorSpawn()
         );
+
         saveLocation(
                 path + ".exit-spawn",
                 arena.getExitSpawn()
@@ -258,6 +308,26 @@ public final class ArenaManager {
                 (float) section.getDouble("yaw"),
                 (float) section.getDouble("pitch")
         );
+    }
+
+    private int getStoredTeamSize(
+            ConfigurationSection section,
+            String arenaName
+    ) {
+        if (section.contains("team-size")) {
+            return section.getInt("team-size", 1);
+        }
+
+        // Backwards compatibility for arenas created before
+        // team sizes were stored separately.
+        Matcher matcher =
+                LEGACY_ARENA_PATTERN.matcher(arenaName);
+
+        if (matcher.matches()) {
+            return Integer.parseInt(matcher.group(1));
+        }
+
+        return 1;
     }
 
     public void reloadArenas() {
@@ -305,10 +375,13 @@ public final class ArenaManager {
 
             try {
                 arena = new DuelArena(name, world);
+                arena.setTeamSize(
+                        getStoredTeamSize(arenaSection, name)
+                );
             } catch (IllegalArgumentException exception) {
                 plugin.getLogger().warning(
                         "Arena '" + name
-                                + "' has an invalid name and was skipped."
+                                + "' has invalid settings and was skipped."
                 );
                 continue;
             }
@@ -429,7 +502,14 @@ public final class ArenaManager {
 
             try {
                 arena = new DuelArena(name, world);
+                arena.setTeamSize(
+                        getStoredTeamSize(arenaSection, name)
+                );
             } catch (IllegalArgumentException exception) {
+                plugin.getLogger().warning(
+                        "Arena '" + name
+                                + "' has invalid settings and was skipped."
+                );
                 continue;
             }
 
