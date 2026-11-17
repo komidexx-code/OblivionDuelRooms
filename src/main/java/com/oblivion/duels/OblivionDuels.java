@@ -17,9 +17,14 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class OblivionDuels extends JavaPlugin
         implements CommandExecutor {
+
+    private static final Pattern HEX_PATTERN =
+            Pattern.compile("&#([A-Fa-f0-9]{6})");
 
     private String prefix;
 
@@ -95,15 +100,66 @@ public final class OblivionDuels extends JavaPlugin
         getLogger().info("OblivionDuels by Komomii enabled!");
     }
 
-    private void updatePrefix() {
-        prefix = ChatColor.translateAlternateColorCodes(
+    // ==========================================
+    // COLOR AND MESSAGE SYSTEM
+    // ==========================================
+
+    public String color(String message) {
+        if (message == null || message.isEmpty()) {
+            return "";
+        }
+
+        Matcher matcher = HEX_PATTERN.matcher(message);
+        StringBuffer buffer = new StringBuffer();
+
+        while (matcher.find()) {
+            String hex = matcher.group(1);
+
+            StringBuilder replacement = new StringBuilder("§x");
+
+            for (char character : hex.toCharArray()) {
+                replacement.append('§').append(character);
+            }
+
+            matcher.appendReplacement(
+                    buffer,
+                    Matcher.quoteReplacement(replacement.toString())
+            );
+        }
+
+        matcher.appendTail(buffer);
+
+        return ChatColor.translateAlternateColorCodes(
                 '&',
-                getConfig().getString(
-                        "settings.prefix",
-                        "&8[&5OblivionDuels&8] "
-                )
+                buffer.toString()
         );
     }
+
+    private void updatePrefix() {
+        prefix = color(getConfig().getString(
+                "settings.prefix",
+                "&8[&5OblivionDuels&8] "
+        ));
+    }
+
+    public String getPrefix() {
+        return prefix;
+    }
+
+    public String getMessage(String path, String fallback) {
+        return color(getConfig().getString(path, fallback));
+    }
+
+    public String getPrefixedMessage(
+            String path,
+            String fallback
+    ) {
+        return prefix + getMessage(path, fallback);
+    }
+
+    // ==========================================
+    // PLACEHOLDER API
+    // ==========================================
 
     private void registerPlaceholderExpansion() {
         if (!Bukkit.getPluginManager().isPluginEnabled(
@@ -135,6 +191,10 @@ public final class OblivionDuels extends JavaPlugin
         getCommand("duels").setExecutor(this);
     }
 
+    // ==========================================
+    // SHUTDOWN
+    // ==========================================
+
     @Override
     public void onDisable() {
         if (matchmakingCoordinator != null) {
@@ -164,6 +224,10 @@ public final class OblivionDuels extends JavaPlugin
 
         getLogger().info("OblivionDuels disabled.");
     }
+
+    // ==========================================
+    // GETTERS
+    // ==========================================
 
     public StatsManager getStatsManager() {
         return statsManager;
@@ -205,6 +269,10 @@ public final class OblivionDuels extends JavaPlugin
         return duelMenu;
     }
 
+    // ==========================================
+    // MATCHMAKING
+    // ==========================================
+
     private boolean isAdmin(CommandSender sender) {
         return sender.hasPermission("oblivionduels.admin");
     }
@@ -218,25 +286,18 @@ public final class OblivionDuels extends JavaPlugin
 
         int maximumPlayers = teamSize * 2;
 
-        String message = prefix
-                + ChatColor.LIGHT_PURPLE
-                + ChatColor.BOLD
-                + joiningPlayer.getName()
-                + ChatColor.RESET
-                + ChatColor.GRAY
-                + " joined the "
-                + ChatColor.YELLOW
-                + teamSize + "v" + teamSize
-                + ChatColor.GRAY
-                + " queue! "
-                + ChatColor.DARK_GRAY
-                + "("
-                + ChatColor.WHITE
-                + currentPlayers + "/" + maximumPlayers
-                + ChatColor.DARK_GRAY
-                + ")";
+        String message = getMessage(
+                "messages.queue-announcement",
+                "&b{player} joined the {mode} queue! &8({players}/{max})"
+        );
 
-        Bukkit.broadcastMessage(message);
+        message = message
+                .replace("{player}", joiningPlayer.getName())
+                .replace("{mode}", teamSize + "v" + teamSize)
+                .replace("{players}", String.valueOf(currentPlayers))
+                .replace("{max}", String.valueOf(maximumPlayers));
+
+        Bukkit.broadcastMessage(prefix + message);
 
         for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
             onlinePlayer.playSound(
@@ -258,58 +319,65 @@ public final class OblivionDuels extends JavaPlugin
         UUID playerId = player.getUniqueId();
 
         if (matchManager.isInMatch(playerId)) {
-            player.sendMessage(prefix + ChatColor.RED
-                    + "You are already in a match.");
+            player.sendMessage(getPrefixedMessage(
+                    "messages.already-in-match",
+                    "&cYou are already in a match."
+            ));
             return false;
         }
 
         if (matchmaking.getQueuedMode(playerId) != null) {
-            player.sendMessage(prefix + ChatColor.RED
-                    + "You are already in a queue.");
+            player.sendMessage(getPrefixedMessage(
+                    "messages.already-in-queue",
+                    "&cYou are already in a queue."
+            ));
             return false;
         }
 
         if (!matchmaking.joinQueue(playerId, teamSize)) {
-            player.sendMessage(prefix + ChatColor.RED
-                    + "Could not join the queue.");
+            player.sendMessage(getPrefixedMessage(
+                    "messages.queue-failed",
+                    "&cCould not join the queue."
+            ));
             return false;
         }
 
-        player.sendMessage(prefix + ChatColor.GREEN
-                + "You joined the "
-                + teamSize + "v" + teamSize
-                + " queue!");
+        String message = getMessage(
+                "messages.queue-joined",
+                "&aYou joined the {mode} queue!"
+        );
+
+        message = message.replace(
+                "{mode}",
+                teamSize + "v" + teamSize
+        );
+
+        player.sendMessage(prefix + message);
 
         announceQueueJoin(player, teamSize);
 
         return true;
     }
 
+    // ==========================================
+    // ARENA HELP
+    // ==========================================
+
     private void sendArenaHelp(CommandSender sender) {
-        sender.sendMessage(prefix + ChatColor.YELLOW
-                + "Arena commands:");
+        sender.sendMessage(prefix + color("&bᴬʀᴇɴᴀ ᴄᴏᴍᴍᴀɴᴅs:"));
 
-        sender.sendMessage(ChatColor.GRAY
-                + "/duels arena create <name>");
-
-        sender.sendMessage(ChatColor.GRAY
-                + "/duels arena setregion");
-
-        sender.sendMessage(ChatColor.GRAY
-                + "/duels arena setspawn <a|b>");
-
-        sender.sendMessage(ChatColor.GRAY
-                + "/duels arena setspectator");
-
-        sender.sendMessage(ChatColor.GRAY
-                + "/duels arena wand");
-
-        sender.sendMessage(ChatColor.GRAY
-                + "/duels arena save");
-
-        sender.sendMessage(ChatColor.GRAY
-                + "/duels setexit <arena>");
+        sender.sendMessage(color("&7/duels arena create <name>"));
+        sender.sendMessage(color("&7/duels arena setregion"));
+        sender.sendMessage(color("&7/duels arena setspawn <a|b>"));
+        sender.sendMessage(color("&7/duels arena setspectator"));
+        sender.sendMessage(color("&7/duels arena wand"));
+        sender.sendMessage(color("&7/duels arena save"));
+        sender.sendMessage(color("&7/duels setexit <arena>"));
     }
+
+    // ==========================================
+    // COMMAND HANDLER
+    // ==========================================
 
     @Override
     public boolean onCommand(
@@ -321,32 +389,16 @@ public final class OblivionDuels extends JavaPlugin
         if (args.length == 0
                 || args[0].equalsIgnoreCase("help")) {
 
-            sender.sendMessage(prefix + ChatColor.LIGHT_PURPLE
-                    + "OblivionDuels Commands");
+            sender.sendMessage(prefix + color("&b&lᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs ᴄᴏᴍᴍᴀɴᴅs"));
 
-            sender.sendMessage(ChatColor.GRAY
-                    + "/duels menu");
-
-            sender.sendMessage(ChatColor.GRAY
-                    + "/duels join <1v1|2v2|3v3|4v4|5v5>");
-
-            sender.sendMessage(ChatColor.GRAY
-                    + "/duels leave");
-
-            sender.sendMessage(ChatColor.GRAY
-                    + "/duels queue");
-
-            sender.sendMessage(ChatColor.GRAY
-                    + "/duels status");
-
-            sender.sendMessage(ChatColor.GRAY
-                    + "/duels arena");
-
-            sender.sendMessage(ChatColor.GRAY
-                    + "/duels setexit <arena>");
-
-            sender.sendMessage(ChatColor.GRAY
-                    + "/duels reload");
+            sender.sendMessage(color("&7/duels menu"));
+            sender.sendMessage(color("&7/duels join <1v1|2v2|3v3|4v4|5v5>"));
+            sender.sendMessage(color("&7/duels leave"));
+            sender.sendMessage(color("&7/duels queue"));
+            sender.sendMessage(color("&7/duels status"));
+            sender.sendMessage(color("&7/duels arena"));
+            sender.sendMessage(color("&7/duels setexit <arena>"));
+            sender.sendMessage(color("&7/duels reload"));
 
             return true;
         }
@@ -367,8 +419,7 @@ public final class OblivionDuels extends JavaPlugin
 
             case "setexit": {
                 if (!isAdmin(sender)) {
-                    sender.sendMessage(prefix + ChatColor.RED
-                            + "You don't have permission.");
+                    sender.sendMessage(prefix + color("&cYou don't have permission."));
                     return true;
                 }
 
@@ -378,33 +429,30 @@ public final class OblivionDuels extends JavaPlugin
                 }
 
                 if (args.length < 2) {
-                    player.sendMessage(prefix + ChatColor.RED
-                            + "Usage: /duels setexit <arena>");
+                    player.sendMessage(prefix + color("&cUsage: /duels setexit <arena>"));
                     return true;
                 }
 
                 DuelArena arena = arenaManager.getArena(args[1]);
 
                 if (arena == null) {
-                    player.sendMessage(prefix + ChatColor.RED
-                            + "Arena not found: " + args[1]);
+                    player.sendMessage(prefix + color("&cArena not found: " + args[1]));
                     return true;
                 }
 
                 arena.setExitSpawn(player.getLocation());
                 arenaManager.saveArena(arena);
 
-                player.sendMessage(prefix + ChatColor.GREEN
-                        + "Exit spawn saved for arena "
-                        + arena.getName() + "!");
+                player.sendMessage(prefix + color(
+                        "&aExit spawn saved for arena " + arena.getName() + "!"
+                ));
 
                 return true;
             }
 
             case "arena": {
                 if (!isAdmin(sender)) {
-                    sender.sendMessage(prefix + ChatColor.RED
-                            + "You don't have permission.");
+                    sender.sendMessage(prefix + color("&cYou don't have permission."));
                     return true;
                 }
 
@@ -425,9 +473,7 @@ public final class OblivionDuels extends JavaPlugin
                             arenaSelection.createWand()
                     );
 
-                    player.sendMessage(prefix + ChatColor.GREEN
-                            + "Arena selection wand given.");
-
+                    player.sendMessage(prefix + color("&aArena selection wand given."));
                     return true;
                 }
 
@@ -438,8 +484,7 @@ public final class OblivionDuels extends JavaPlugin
                     }
 
                     if (args.length < 3) {
-                        player.sendMessage(prefix + ChatColor.RED
-                                + "Usage: /duels arena create <name>");
+                        player.sendMessage(prefix + color("&cUsage: /duels arena create <name>"));
                         return true;
                     }
 
@@ -449,8 +494,7 @@ public final class OblivionDuels extends JavaPlugin
                             name,
                             player.getWorld()
                     )) {
-                        player.sendMessage(prefix + ChatColor.RED
-                                + "Could not create that arena.");
+                        player.sendMessage(prefix + color("&cCould not create that arena."));
                         return true;
                     }
 
@@ -461,12 +505,12 @@ public final class OblivionDuels extends JavaPlugin
                             arena
                     );
 
-                    player.sendMessage(prefix + ChatColor.GREEN
-                            + "Created arena " + name + ".");
+                    player.sendMessage(prefix + color("&aCreated arena " + name + "."));
 
-                    player.sendMessage(ChatColor.YELLOW
-                            + "Select two corners with your wand, "
-                            + "then use /duels arena setregion.");
+                    player.sendMessage(color(
+                            "&eSelect two corners with your wand, "
+                                    + "then use /duels arena setregion."
+                    ));
 
                     return true;
                 }
@@ -481,14 +525,12 @@ public final class OblivionDuels extends JavaPlugin
                     DuelArena arena = pendingArenas.get(playerId);
 
                     if (arena == null) {
-                        player.sendMessage(prefix + ChatColor.RED
-                                + "Create an arena first.");
+                        player.sendMessage(prefix + color("&cCreate an arena first."));
                         return true;
                     }
 
                     if (!arenaSelection.hasSelection(playerId)) {
-                        player.sendMessage(prefix + ChatColor.RED
-                                + "Select both corners first.");
+                        player.sendMessage(prefix + color("&cSelect both corners first."));
                         return true;
                     }
 
@@ -501,9 +543,7 @@ public final class OblivionDuels extends JavaPlugin
                     arena.setCorner1(pos1);
                     arena.setCorner2(pos2);
 
-                    player.sendMessage(prefix + ChatColor.GREEN
-                            + "Arena region selected.");
-
+                    player.sendMessage(prefix + color("&aArena region selected."));
                     return true;
                 }
 
@@ -514,8 +554,7 @@ public final class OblivionDuels extends JavaPlugin
                     }
 
                     if (args.length < 3) {
-                        player.sendMessage(prefix + ChatColor.RED
-                                + "Usage: /duels arena setspawn <a|b>");
+                        player.sendMessage(prefix + color("&cUsage: /duels arena setspawn <a|b>"));
                         return true;
                     }
 
@@ -524,8 +563,7 @@ public final class OblivionDuels extends JavaPlugin
                     );
 
                     if (arena == null) {
-                        player.sendMessage(prefix + ChatColor.RED
-                                + "Create an arena first.");
+                        player.sendMessage(prefix + color("&cCreate an arena first."));
                         return true;
                     }
 
@@ -537,14 +575,14 @@ public final class OblivionDuels extends JavaPlugin
                     } else if (team.equals("b")) {
                         arena.setTeamBSpawn(location);
                     } else {
-                        player.sendMessage(prefix + ChatColor.RED
-                                + "Use a or b.");
+                        player.sendMessage(prefix + color("&cUse a or b."));
                         return true;
                     }
 
-                    player.sendMessage(prefix + ChatColor.GREEN
-                            + "Team " + team.toUpperCase(Locale.ROOT)
-                            + " spawn saved.");
+                    player.sendMessage(prefix + color(
+                            "&aTeam " + team.toUpperCase(Locale.ROOT)
+                                    + " spawn saved."
+                    ));
 
                     return true;
                 }
@@ -560,16 +598,13 @@ public final class OblivionDuels extends JavaPlugin
                     );
 
                     if (arena == null) {
-                        player.sendMessage(prefix + ChatColor.RED
-                                + "Create an arena first.");
+                        player.sendMessage(prefix + color("&cCreate an arena first."));
                         return true;
                     }
 
                     arena.setSpectatorSpawn(player.getLocation());
 
-                    player.sendMessage(prefix + ChatColor.GREEN
-                            + "Spectator spawn saved.");
-
+                    player.sendMessage(prefix + color("&aSpectator spawn saved."));
                     return true;
                 }
 
@@ -583,30 +618,27 @@ public final class OblivionDuels extends JavaPlugin
                     DuelArena arena = pendingArenas.get(playerId);
 
                     if (arena == null) {
-                        player.sendMessage(prefix + ChatColor.RED
-                                + "Create an arena first.");
+                        player.sendMessage(prefix + color("&cCreate an arena first."));
                         return true;
                     }
 
                     if (!arena.isReady()) {
-                        player.sendMessage(prefix + ChatColor.RED
-                                + "Arena is incomplete. Set its region, "
-                                + "both team spawns, and spectator spawn.");
+                        player.sendMessage(prefix + color(
+                                "&cArena is incomplete. Set its region, "
+                                        + "both team spawns, and spectator spawn."
+                        ));
                         return true;
                     }
 
                     if (!arenaManager.registerArena(arena)) {
-                        player.sendMessage(prefix + ChatColor.RED
-                                + "Could not register this arena.");
+                        player.sendMessage(prefix + color("&cCould not register this arena."));
                         return true;
                     }
 
                     pendingArenas.remove(playerId);
                     arenaSelection.clearSelection(playerId);
 
-                    player.sendMessage(prefix + ChatColor.GREEN
-                            + "Arena saved successfully!");
-
+                    player.sendMessage(prefix + color("&aArena saved successfully!"));
                     return true;
                 }
 
@@ -621,8 +653,9 @@ public final class OblivionDuels extends JavaPlugin
                 }
 
                 if (args.length < 2) {
-                    player.sendMessage(prefix + ChatColor.RED
-                            + "Usage: /duels join <1v1|2v2|3v3|4v4|5v5>");
+                    player.sendMessage(prefix + color(
+                            "&cUsage: /duels join <1v1|2v2|3v3|4v4|5v5>"
+                    ));
                     return true;
                 }
 
@@ -638,8 +671,9 @@ public final class OblivionDuels extends JavaPlugin
                 };
 
                 if (teamSize == 0) {
-                    player.sendMessage(prefix + ChatColor.RED
-                            + "Invalid mode. Use 1v1, 2v2, 3v3, 4v4, or 5v5.");
+                    player.sendMessage(prefix + color(
+                            "&cInvalid mode. Use 1v1, 2v2, 3v3, 4v4, or 5v5."
+                    ));
                     return true;
                 }
 
@@ -658,60 +692,53 @@ public final class OblivionDuels extends JavaPlugin
                 if (matchmaking.getQueuedMode(playerId) != null) {
                     matchmaking.leaveQueue(playerId);
 
-                    player.sendMessage(prefix + ChatColor.GREEN
-                            + "You left the queue.");
+                    player.sendMessage(getPrefixedMessage(
+                            "messages.queue-left",
+                            "&aYou left the queue."
+                    ));
                     return true;
                 }
 
-                player.sendMessage(prefix + ChatColor.RED
-                        + "You are not in a queue.");
-
+                player.sendMessage(prefix + color("&cYou are not in a queue."));
                 return true;
             }
 
             case "queue": {
-                sender.sendMessage(prefix + ChatColor.LIGHT_PURPLE
-                        + "Queue Status:");
+                sender.sendMessage(prefix + color("&b&lǫᴜᴇᴜᴇ sᴛᴀᴛᴜs:"));
 
                 for (int size = 1; size <= 5; size++) {
-                    sender.sendMessage(ChatColor.GRAY.toString()
+                    sender.sendMessage(color("&7"
                             + size + "v" + size + ": "
-                            + ChatColor.WHITE
+                            + "&f"
                             + matchmaking.getQueueSize(size)
-                            + "/" + (size * 2));
+                            + "/" + (size * 2)));
                 }
 
                 return true;
             }
 
             case "status": {
-                sender.sendMessage(prefix + ChatColor.LIGHT_PURPLE
-                        + "OblivionDuels Status");
+                sender.sendMessage(prefix + color("&b&lᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs sᴛᴀᴛᴜs"));
 
-                sender.sendMessage(ChatColor.GRAY
-                        + "Active matches: " + ChatColor.WHITE
-                        + matchManager.getActiveMatchCount());
+                sender.sendMessage(color("&7Active matches: &f"
+                        + matchManager.getActiveMatchCount()));
 
-                sender.sendMessage(ChatColor.GRAY
-                        + "Players in matches: " + ChatColor.WHITE
-                        + matchManager.getActivePlayerCount());
+                sender.sendMessage(color("&7Players in matches: &f"
+                        + matchManager.getActivePlayerCount()));
 
-                sender.sendMessage(ChatColor.GRAY
-                        + "Available arenas: " + ChatColor.WHITE
+                sender.sendMessage(color("&7Available arenas: &f"
                         + arenaManager.getAvailableArenaCount(1)
-                        + " (1v1)");
+                        + " (1v1)"));
 
-                sender.sendMessage(ChatColor.GRAY
-                        + "Total arenas: " + ChatColor.WHITE
-                        + arenaManager.getArenaCount());
+                sender.sendMessage(color("&7Total arenas: &f"
+                        + arenaManager.getArenaCount()));
 
                 return true;
             }
 
             case "reload": {
                 if (!isAdmin(sender)) {
-                    sender.sendMessage(prefix + ChatColor.RED
-                            + "You don't have permission.");
+                    sender.sendMessage(prefix + color("&cYou don't have permission."));
                     return true;
                 }
 
@@ -720,21 +747,27 @@ public final class OblivionDuels extends JavaPlugin
                 arenaManager.reloadArenas();
                 matchmakingCoordinator.reloadSettings();
 
-                sender.sendMessage(prefix + ChatColor.GREEN
-                        + "Configuration, matchmaking settings, "
-                        + "and arena data reloaded safely.");
+                sender.sendMessage(prefix + color(
+                        "&aConfiguration, matchmaking settings, "
+                                + "and arena data reloaded safely."
+                ));
 
                 return true;
             }
 
             default: {
-                sender.sendMessage(prefix + ChatColor.RED
-                        + "Unknown command. Use /duels help.");
+                sender.sendMessage(prefix + color(
+                        "&cUnknown command. Use /duels help."
+                ));
 
                 return true;
             }
         }
     }
+
+    // ==========================================
+    // PLACEHOLDER EXPANSION
+    // ==========================================
 
     private final class DuelPlaceholderExpansion
             extends PlaceholderExpansion {
