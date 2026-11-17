@@ -5,20 +5,12 @@ import org.bukkit.Location;
 import org.bukkit.World;
 
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public final class DuelArena {
 
-    private static final Pattern ARENA_NAME_PATTERN =
-            Pattern.compile(
-                    "^(1|2|3|4|5)v\\1(?:[-_ ]|$)",
-                    Pattern.CASE_INSENSITIVE
-            );
-
     private final String name;
     private final UUID worldId;
-    private final int teamSize;
+    private int teamSize;
 
     private Location corner1;
     private Location corner2;
@@ -43,18 +35,9 @@ public final class DuelArena {
 
         this.name = name;
         this.worldId = world.getUID();
-        this.teamSize = detectTeamSize(name);
-    }
 
-    private int detectTeamSize(String arenaName) {
-        Matcher matcher =
-                ARENA_NAME_PATTERN.matcher(arenaName);
-
-        if (!matcher.find()) {
-            return 0;
-        }
-
-        return Integer.parseInt(matcher.group(1));
+        // Default size for newly created arenas.
+        this.teamSize = 1;
     }
 
     public String getName() {
@@ -67,6 +50,16 @@ public final class DuelArena {
 
     public int getTeamSize() {
         return teamSize;
+    }
+
+    public void setTeamSize(int teamSize) {
+        if (teamSize < 1 || teamSize > 5) {
+            throw new IllegalArgumentException(
+                    "Team size must be between 1 and 5."
+            );
+        }
+
+        this.teamSize = teamSize;
     }
 
     public Location getCorner1() {
