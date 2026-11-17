@@ -10,24 +10,40 @@ import java.util.UUID;
 public final class DuelMatch {
 
     public enum MatchState {
-        WAITING, COUNTDOWN, ACTIVE, ENDING, ENDED
+        WAITING,
+        COUNTDOWN,
+        ACTIVE,
+        ENDING,
+        ENDED
     }
 
     public enum WinningTeam {
-        TEAM_A, TEAM_B, DRAW, NONE
+        TEAM_A,
+        TEAM_B,
+        DRAW,
+        NONE
     }
 
     private final UUID matchId;
     private final int teamSize;
     private final List<UUID> teamA;
     private final List<UUID> teamB;
+
     private final Set<UUID> alivePlayers = new LinkedHashSet<>();
 
     private MatchState state = MatchState.WAITING;
+
     private int teamAScore;
     private int teamBScore;
 
-    public DuelMatch(int teamSize, List<UUID> teamA, List<UUID> teamB) {
+    private int currentRound = 1;
+    private int completedRounds;
+
+    public DuelMatch(
+            int teamSize,
+            List<UUID> teamA,
+            List<UUID> teamB
+    ) {
         if (teamSize < 1 || teamSize > 5) {
             throw new IllegalArgumentException("Invalid team size.");
         }
@@ -35,20 +51,26 @@ public final class DuelMatch {
         if (teamA == null || teamB == null
                 || teamA.size() != teamSize
                 || teamB.size() != teamSize) {
-            throw new IllegalArgumentException("Teams must be equal in size.");
+            throw new IllegalArgumentException(
+                    "Teams must be equal in size."
+            );
         }
 
         Set<UUID> allPlayers = new LinkedHashSet<>();
 
         for (UUID player : teamA) {
             if (player == null || !allPlayers.add(player)) {
-                throw new IllegalArgumentException("Duplicate or invalid player in Team A.");
+                throw new IllegalArgumentException(
+                        "Duplicate or invalid player in Team A."
+                );
             }
         }
 
         for (UUID player : teamB) {
             if (player == null || !allPlayers.add(player)) {
-                throw new IllegalArgumentException("Duplicate or invalid player in Team B.");
+                throw new IllegalArgumentException(
+                        "Duplicate or invalid player in Team B."
+                );
             }
         }
 
@@ -85,6 +107,50 @@ public final class DuelMatch {
         return teamBScore;
     }
 
+    public int getCurrentRound() {
+        return currentRound;
+    }
+
+    public int getCompletedRounds() {
+        return completedRounds;
+    }
+
+    public MatchState getState() {
+        return state;
+    }
+
+    public void setState(MatchState newState) {
+        if (newState == null || state == MatchState.ENDED) {
+            return;
+        }
+
+        boolean validTransition = switch (state) {
+            case WAITING ->
+                    newState == MatchState.COUNTDOWN
+                            || newState == MatchState.ENDING
+                            || newState == MatchState.ENDED;
+
+            case COUNTDOWN ->
+                    newState == MatchState.ACTIVE
+                            || newState == MatchState.ENDING
+                            || newState == MatchState.ENDED;
+
+            case ACTIVE ->
+                    newState == MatchState.COUNTDOWN
+                            || newState == MatchState.ENDING
+                            || newState == MatchState.ENDED;
+
+            case ENDING ->
+                    newState == MatchState.ENDED;
+
+            case ENDED -> false;
+        };
+
+        if (validTransition) {
+            state = newState;
+        }
+    }
+
     public void addPointToTeamA() {
         teamAScore++;
     }
@@ -93,6 +159,96 @@ public final class DuelMatch {
         teamBScore++;
     }
 
+    /**
+     * Records one completed round.
+     * A draw completes the round without awarding a point.
+     */
+    public void recordRoundResult(WinningTeam winner) {
+        if (winner == null || winner == WinningTeam.NONE) {
+            return;
+        }
+
+        if (getMatchWinner() != WinningTeam.NONE
+                || completedRounds >= 3) {
+            return;
+        }
+
+        completedRounds++;
+
+        if (winner == WinningTeam.TEAM_A) {
+            teamAScore++;
+        } else if (winner == WinningTeam.TEAM_B) {
+            teamBScore++;
+        }
+    }
+
+    public void awardRoundWin(WinningTeam winner) {
+        if (winner == WinningTeam.TEAM_A
+                || winner == WinningTeam.TEAM_B) {
+            recordRoundResult(winner);
+        }
+    }
+
+    public void recordRoundDraw() {
+        recordRoundResult(WinningTeam.DRAW);
+    }
+
+    /**
+     * Returns the final match winner.
+     * A team wins immediately after reaching two round wins.
+     * After three completed rounds, the higher score wins.
+     */
+    public WinningTeam getMatchWinner() {
+        if (teamAScore >= 2) {
+            return WinningTeam.TEAM_A;
+        }
+
+        if (teamBScore >= 2) {
+            return WinningTeam.TEAM_B;
+        }
+
+        if (completedRounds >= 3) {
+            if (teamAScore > teamBScore) {
+                return WinningTeam.TEAM_A;
+            }
+
+            if (teamBScore > teamAScore) {
+                return WinningTeam.TEAM_B;
+            }
+
+            return WinningTeam.DRAW;
+        }
+
+        return WinningTeam.NONE;
+    }
+
+    /**
+     * Advances to the next round and revives all participants.
+     * Returns false if no further round can be played.
+     */
+    public boolean advanceRound() {
+        if (getMatchWinner() != WinningTeam.NONE
+                || completedRounds >= 3
+                || currentRound >= 3) {
+            return false;
+        }
+
+        currentRound++;
+        resetAlivePlayers();
+
+        return true;
+    }
+
+    public void resetAlivePlayers() {
+        alivePlayers.clear();
+        alivePlayers.addAll(teamA);
+        alivePlayers.addAll(teamB);
+    }
+
+    /**
+     * Legacy method retained for compatibility.
+     * Round scoring should use recordRoundResult() instead.
+     */
     public void awardPointToOpposingTeam(UUID eliminatedPlayer) {
         if (eliminatedPlayer == null) {
             return;
@@ -105,47 +261,10 @@ public final class DuelMatch {
         }
     }
 
-    public MatchState getState() {
-        return state;
-    }
-
-    public void setState(MatchState newState) {
-        if (newState == null) {
-            throw new IllegalArgumentException("Match state cannot be null.");
-        }
-
-        if (state == MatchState.ENDED) {
-            return;
-        }
-
-        if (state == MatchState.ENDING && newState != MatchState.ENDED) {
-            return;
-        }
-
-        boolean validTransition = switch (state) {
-            case WAITING ->
-                    newState == MatchState.COUNTDOWN
-                            || newState == MatchState.ENDING
-                            || newState == MatchState.ENDED;
-            case COUNTDOWN ->
-                    newState == MatchState.ACTIVE
-                            || newState == MatchState.ENDING
-                            || newState == MatchState.ENDED;
-            case ACTIVE ->
-                    newState == MatchState.ENDING
-                            || newState == MatchState.ENDED;
-            case ENDING -> newState == MatchState.ENDED;
-            case ENDED -> false;
-        };
-
-        if (validTransition) {
-            state = newState;
-        }
-    }
-
     public boolean contains(UUID playerId) {
         return playerId != null
-                && (teamA.contains(playerId) || teamB.contains(playerId));
+                && (teamA.contains(playerId)
+                || teamB.contains(playerId));
     }
 
     public boolean isOnSameTeam(UUID first, UUID second) {
@@ -178,11 +297,7 @@ public final class DuelMatch {
     }
 
     public boolean eliminatePlayer(UUID playerId) {
-        if (!contains(playerId)) {
-            return false;
-        }
-
-        return alivePlayers.remove(playerId);
+        return playerId != null && alivePlayers.remove(playerId);
     }
 
     public int getAliveCount() {
@@ -204,8 +319,8 @@ public final class DuelMatch {
     private int countAlive(List<UUID> team) {
         int count = 0;
 
-        for (UUID player : team) {
-            if (alivePlayers.contains(player)) {
+        for (UUID playerId : team) {
+            if (alivePlayers.contains(playerId)) {
                 count++;
             }
         }
@@ -217,22 +332,26 @@ public final class DuelMatch {
         return new ArrayList<>(alivePlayers);
     }
 
+    /**
+     * Determines the winner of the current round
+     * based on which team still has living players.
+     */
     public WinningTeam getWinner() {
-        boolean teamAAlive = getAliveCount(WinningTeam.TEAM_A) > 0;
-        boolean teamBAlive = getAliveCount(WinningTeam.TEAM_B) > 0;
+        int teamAAlive = getAliveCount(WinningTeam.TEAM_A);
+        int teamBAlive = getAliveCount(WinningTeam.TEAM_B);
 
-        if (teamAAlive && teamBAlive) {
-            return WinningTeam.NONE;
+        if (teamAAlive == 0 && teamBAlive == 0) {
+            return WinningTeam.DRAW;
         }
 
-        if (teamAAlive) {
-            return WinningTeam.TEAM_A;
-        }
-
-        if (teamBAlive) {
+        if (teamAAlive == 0) {
             return WinningTeam.TEAM_B;
         }
 
-        return WinningTeam.DRAW;
+        if (teamBAlive == 0) {
+            return WinningTeam.TEAM_A;
+        }
+
+        return WinningTeam.NONE;
     }
 }
