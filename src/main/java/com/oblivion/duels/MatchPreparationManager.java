@@ -41,6 +41,10 @@ public final class MatchPreparationManager {
         this.rollbackManager = rollbackManager;
     }
 
+    // =========================================================
+    // INITIAL MATCH PREPARATION
+    // =========================================================
+
     public boolean prepareMatch(DuelMatch match, DuelArena arena) {
 
         if (match == null
@@ -84,6 +88,13 @@ public final class MatchPreparationManager {
 
         UUID matchId = match.getMatchId();
 
+        // Capture original inventories before moving anyone.
+        MatchDeathListener listener = getDeathListener();
+
+        if (listener != null) {
+            listener.captureStartingInventories(match);
+        }
+
         if (!rollbackManager.startTracking(arena)) {
             abortMatch(
                     match,
@@ -121,14 +132,19 @@ public final class MatchPreparationManager {
         return true;
     }
 
+    // =========================================================
+    // NEXT ROUND PREPARATION
+    // =========================================================
+
     /**
-     * Prepares the next round without restarting arena rollback tracking
-     * or resetting the overall match timeout.
+     * Prepares the next round without restarting arena rollback
+     * tracking or the overall match timeout.
      */
     public boolean prepareNextRound(
             DuelMatch match,
             DuelArena arena
     ) {
+
         if (match == null
                 || match.getState() != DuelMatch.MatchState.ACTIVE) {
             return false;
@@ -147,6 +163,13 @@ public final class MatchPreparationManager {
 
         if (!match.advanceRound()) {
             return false;
+        }
+
+        // Restore original equipment before preparing the new round.
+        MatchDeathListener listener = getDeathListener();
+
+        if (listener != null) {
+            listener.restoreStartingInventories(match);
         }
 
         match.setState(DuelMatch.MatchState.COUNTDOWN);
@@ -168,24 +191,35 @@ public final class MatchPreparationManager {
                         + " is starting soon!"
         );
 
+        // false means the existing overall match timer continues.
         startCountdown(match, arena, false);
 
         return true;
     }
 
+    // =========================================================
+    // VALIDATION
+    // =========================================================
+
     private boolean isArenaValid(
             DuelMatch match,
             DuelArena arena
     ) {
+
         return arena.isReady()
                 && arena.getTeamSize() == match.getTeamA().size()
                 && match.getTeamA().size() == match.getTeamB().size();
     }
 
+    // =========================================================
+    // PLAYER TELEPORTATION AND RESET
+    // =========================================================
+
     private boolean teleportTeams(
             DuelMatch match,
             DuelArena arena
     ) {
+
         for (UUID id : match.getTeamA()) {
             Player player = Bukkit.getPlayer(id);
 
@@ -209,6 +243,7 @@ public final class MatchPreparationManager {
             Player player,
             Location spawn
     ) {
+
         if (player == null
                 || !player.isOnline()
                 || spawn == null
@@ -230,16 +265,25 @@ public final class MatchPreparationManager {
         return true;
     }
 
+    // =========================================================
+    // DEATH LISTENER ACCESS
+    // =========================================================
+
+    private MatchDeathListener getDeathListener() {
+
+        if (!(plugin instanceof OblivionDuels duels)) {
+            return null;
+        }
+
+        return duels.getMatchDeathListener();
+    }
+
     private void saveParticipantSpawns(
             DuelMatch match,
             DuelArena arena
     ) {
-        if (!(plugin instanceof OblivionDuels duels)) {
-            return;
-        }
 
-        MatchDeathListener listener =
-                duels.getMatchDeathListener();
+        MatchDeathListener listener = getDeathListener();
 
         if (listener != null) {
             listener.saveParticipantSpawns(
@@ -249,11 +293,16 @@ public final class MatchPreparationManager {
         }
     }
 
+    // =========================================================
+    // COUNTDOWN
+    // =========================================================
+
     private void startCountdown(
             DuelMatch match,
             DuelArena arena,
             boolean startMatchTimeout
     ) {
+
         int seconds = Math.max(
                 1,
                 plugin.getConfig().getInt(
@@ -280,38 +329,23 @@ public final class MatchPreparationManager {
                 if (match.getState()
                         != DuelMatch.MatchState.COUNTDOWN
                         || matchManager.getMatch(matchId) != match) {
+
                     cancel();
                     countdownTasks.remove(matchId);
                     return;
                 }
 
-                for (UUID id : match.getTeamA()) {
-                    Player player = Bukkit.getPlayer(id);
-
-                    if (player == null || !player.isOnline()) {
-                        abortMatch(
-                                match,
-                                arena,
-                                "A player disconnected."
-                        );
-                        return;
-                    }
-                }
-
-                for (UUID id : match.getTeamB()) {
-                    Player player = Bukkit.getPlayer(id);
-
-                    if (player == null || !player.isOnline()) {
-                        abortMatch(
-                                match,
-                                arena,
-                                "A player disconnected."
-                        );
-                        return;
-                    }
+                if (!areAllPlayersOnline(match)) {
+                    abortMatch(
+                            match,
+                            arena,
+                            "A player disconnected."
+                    );
+                    return;
                 }
 
                 if (remaining <= 0) {
+
                     match.setState(DuelMatch.MatchState.ACTIVE);
 
                     if (startMatchTimeout) {
@@ -323,11 +357,10 @@ public final class MatchPreparationManager {
                             ChatColor.GREEN + "FIGHT!"
                     );
 
-                    if (startMatchTimeout
-                            && plugin instanceof OblivionDuels duels) {
+                    if (startMatchTimeout) {
 
                         MatchDeathListener listener =
-                                duels.getMatchDeathListener();
+                                getDeathListener();
 
                         if (listener != null) {
                             listener.startMatchTimeout(match);
@@ -357,10 +390,36 @@ public final class MatchPreparationManager {
         countdownTasks.put(matchId, task);
     }
 
+    private boolean areAllPlayersOnline(DuelMatch match) {
+
+        for (UUID id : match.getTeamA()) {
+            Player player = Bukkit.getPlayer(id);
+
+            if (player == null || !player.isOnline()) {
+                return false;
+            }
+        }
+
+        for (UUID id : match.getTeamB()) {
+            Player player = Bukkit.getPlayer(id);
+
+            if (player == null || !player.isOnline()) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // =========================================================
+    // BROADCAST
+    // =========================================================
+
     private void broadcast(
             DuelMatch match,
             String message
     ) {
+
         for (UUID id : match.getTeamA()) {
             Player player = Bukkit.getPlayer(id);
 
@@ -378,7 +437,12 @@ public final class MatchPreparationManager {
         }
     }
 
+    // =========================================================
+    // ORIGINAL LOCATION RESTORATION
+    // =========================================================
+
     private void restoreOriginalLocations(UUID matchId) {
+
         Map<UUID, Location> savedLocations =
                 originalLocations.remove(matchId);
 
@@ -388,6 +452,7 @@ public final class MatchPreparationManager {
 
         for (Map.Entry<UUID, Location> entry
                 : savedLocations.entrySet()) {
+
             Player player = Bukkit.getPlayer(entry.getKey());
 
             if (player != null && player.isOnline()) {
@@ -396,11 +461,16 @@ public final class MatchPreparationManager {
         }
     }
 
+    // =========================================================
+    // MATCH ABORT
+    // =========================================================
+
     private void abortMatch(
             DuelMatch match,
             DuelArena arena,
             String reason
     ) {
+
         if (match == null
                 || match.getState() == DuelMatch.MatchState.ENDING
                 || match.getState() == DuelMatch.MatchState.ENDED) {
@@ -417,6 +487,13 @@ public final class MatchPreparationManager {
 
         restoreOriginalLocations(matchId);
 
+        // Restore original equipment if preparation was interrupted.
+        MatchDeathListener listener = getDeathListener();
+
+        if (listener != null) {
+            listener.restoreStartingInventories(match);
+        }
+
         String arenaName = arena != null
                 ? arena.getName()
                 : matchManager.getArenaForMatch(matchId);
@@ -430,16 +507,24 @@ public final class MatchPreparationManager {
         );
 
         if (arena != null) {
+
             rollbackManager.restoreArena(
                     arena,
                     () -> arenaManager.releaseArena(arenaName)
             );
+
         } else if (arenaName != null) {
+
             arenaManager.releaseArena(arenaName);
         }
     }
 
+    // =========================================================
+    // SHUTDOWN
+    // =========================================================
+
     public void shutdown() {
+
         for (BukkitTask task : countdownTasks.values()) {
             task.cancel();
         }
@@ -450,12 +535,19 @@ public final class MatchPreparationManager {
                 new HashSet<>(originalLocations.keySet());
 
         for (UUID matchId : matchIds) {
+
             DuelMatch match = matchManager.getMatch(matchId);
 
             restoreOriginalLocations(matchId);
 
             if (match == null) {
                 continue;
+            }
+
+            MatchDeathListener listener = getDeathListener();
+
+            if (listener != null) {
+                listener.restoreStartingInventories(match);
             }
 
             String arenaName =
@@ -467,17 +559,21 @@ public final class MatchPreparationManager {
                     != DuelMatch.MatchState.ENDING
                     && match.getState()
                     != DuelMatch.MatchState.ENDED) {
+
                 match.setState(DuelMatch.MatchState.ENDED);
             }
 
             matchManager.endMatch(matchId);
 
             if (arena != null) {
+
                 rollbackManager.restoreArena(
                         arena,
                         () -> arenaManager.releaseArena(arenaName)
                 );
+
             } else if (arenaName != null) {
+
                 arenaManager.releaseArena(arenaName);
             }
         }
