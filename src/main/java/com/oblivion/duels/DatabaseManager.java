@@ -1,4 +1,3 @@
-
 package com.oblivion.duels;
 
 import org.bukkit.inventory.ItemStack;
@@ -12,6 +11,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -62,6 +62,38 @@ public final class DatabaseManager {
                             PRIMARY KEY (uuid, item_index)
                         )
                         """);
+
+                statement.executeUpdate("""
+                        CREATE TABLE IF NOT EXISTS loot_chests (
+                            match_id TEXT PRIMARY KEY,
+                            created_at INTEGER NOT NULL
+                        )
+                        """);
+
+                statement.executeUpdate("""
+                        CREATE TABLE IF NOT EXISTS loot_chest_members (
+                            match_id TEXT NOT NULL,
+                            uuid TEXT NOT NULL,
+                            PRIMARY KEY (match_id, uuid),
+                            FOREIGN KEY (match_id)
+                                REFERENCES loot_chests(match_id)
+                                ON DELETE CASCADE
+                        )
+                        """);
+
+                statement.executeUpdate("""
+                        CREATE TABLE IF NOT EXISTS loot_chest_items (
+                            match_id TEXT NOT NULL,
+                            item_slot INTEGER NOT NULL,
+                            item_data BLOB NOT NULL,
+                            PRIMARY KEY (match_id, item_slot),
+                            FOREIGN KEY (match_id)
+                                REFERENCES loot_chests(match_id)
+                                ON DELETE CASCADE
+                        )
+                        """);
+
+                statement.executeUpdate("PRAGMA foreign_keys = ON");
             }
 
             plugin.getLogger().info(
@@ -329,6 +361,320 @@ public final class DatabaseManager {
         }
     }
 
+    /*
+     * Shared virtual loot chest storage.
+     */
+
+    public boolean saveLootChest(
+            UUID matchId,
+            List<UUID> winners,
+            ItemStack[] contents
+    ) {
+        if (!isConnected()
+                || matchId == null
+                || winners == null
+                || contents == null) {
+            return false;
+        }
+
+        boolean previousAutoCommit = true;
+
+        try {
+            previousAutoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+
+            try (PreparedStatement insertChest =
+                         connection.prepareStatement("""
+                                 INSERT INTO loot_chests
+                                 (match_id, created_at)
+                                 VALUES (?, ?)
+                                 ON CONFLICT(match_id) DO NOTHING
+                                 """)) {
+
+                insertChest.setString(1, matchId.toString());
+                insertChest.setLong(2, System.currentTimeMillis());
+                insertChest.executeUpdate();
+            }
+
+            try (PreparedStatement deleteMembers =
+                         connection.prepareStatement(
+                                 "DELETE FROM loot_chest_members "
+                                         + "WHERE match_id = ?"
+                         )) {
+
+                deleteMembers.setString(1, matchId.toString());
+                deleteMembers.executeUpdate();
+            }
+
+            try (PreparedStatement insertMember =
+                         connection.prepareStatement("""
+                                 INSERT INTO loot_chest_members
+                                 (match_id, uuid)
+                                 VALUES (?, ?)
+                                 """)) {
+
+                for (UUID winner : winners) {
+                    if (winner == null) {
+                        continue;
+                    }
+
+                    insertMember.setString(1, matchId.toString());
+                    insertMember.setString(2, winner.toString());
+                    insertMember.addBatch();
+                }
+
+                insertMember.executeBatch();
+            }
+
+            saveLootChestItemsInternal(matchId, contents);
+
+            connection.commit();
+            return true;
+
+        } catch (Exception exception) {
+            try {
+                connection.rollback();
+            } catch (SQLException rollbackException) {
+                rollbackException.printStackTrace();
+            }
+
+            plugin.getLogger().severe(
+                    "Could not save loot chest for match " + matchId
+            );
+            exception.printStackTrace();
+            return false;
+
+        } finally {
+            try {
+                connection.setAutoCommit(previousAutoCommit);
+            } catch (SQLException exception) {
+                exception.printStackTrace();
+            }
+        }
+    }
+
+    public boolean updateLootChestItems(
+            UUID matchId,
+            ItemStack[] contents
+    ) {
+        if (!isConnected()
+                || matchId == null
+                || contents == null) {
+            return false;
+        }
+
+        boolean previousAutoCommit = true;
+
+        try {
+            previousAutoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+
+            try (PreparedStatement check =
+                         connection.prepareStatement(
+                                 "SELECT 1 FROM loot_chests "
+                                         + "WHERE match_id = ?"
+                         )) {
+
+                check.setString(1, matchId.toString());
+
+                try (ResultSet results = check.executeQuery()) {
+                    if (!results.next()) {
+                        connection.rollback();
+                        return false;
+                    }
+                }
+            }
+
+            saveLootChestItemsInternal(matchId, contents);
+
+            connection.commit();
+            return true;
+
+        } catch (Exception exception) {
+            try {
+                connection.rollback();
+            } catch (SQLException rollbackException) {
+                rollbackException.printStackTrace();
+            }
+
+            plugin.getLogger().severe(
+                    "Could not update loot chest for match " + matchId
+            );
+            exception.printStackTrace();
+            return false;
+
+        } finally {
+            try {
+                connection.setAutoCommit(previousAutoCommit);
+            } catch (SQLException exception) {
+                exception.printStackTrace();
+            }
+        }
+    }
+
+    private void saveLootChestItemsInternal(
+            UUID matchId,
+            ItemStack[] contents
+    ) throws SQLException {
+
+        try (PreparedStatement deleteItems =
+                     connection.prepareStatement(
+                             "DELETE FROM loot_chest_items "
+                                     + "WHERE match_id = ?"
+                     )) {
+
+            deleteItems.setString(1, matchId.toString());
+            deleteItems.executeUpdate();
+        }
+
+        String sql = """
+                INSERT INTO loot_chest_items
+                (match_id, item_slot, item_data)
+                VALUES (?, ?, ?)
+                """;
+
+        try (PreparedStatement insert =
+                     connection.prepareStatement(sql)) {
+
+            for (int slot = 0; slot < contents.length; slot++) {
+                ItemStack item = contents[slot];
+
+                if (item == null || item.getType().isAir()) {
+                    continue;
+                }
+
+                insert.setString(1, matchId.toString());
+                insert.setInt(2, slot);
+                insert.setBytes(3, item.serializeAsBytes());
+                insert.addBatch();
+            }
+
+            insert.executeBatch();
+        }
+    }
+
+    public LootChestData loadLootChest(UUID matchId) {
+        if (!isConnected() || matchId == null) {
+            return null;
+        }
+
+        boolean chestExists = false;
+        List<UUID> winners = new ArrayList<>();
+        Map<Integer, ItemStack> items = new HashMap<>();
+
+        try (PreparedStatement chestStatement =
+                     connection.prepareStatement(
+                             "SELECT 1 FROM loot_chests WHERE match_id = ?"
+                     )) {
+
+            chestStatement.setString(1, matchId.toString());
+
+            try (ResultSet results = chestStatement.executeQuery()) {
+                chestExists = results.next();
+            }
+
+        } catch (SQLException exception) {
+            exception.printStackTrace();
+            return null;
+        }
+
+        if (!chestExists) {
+            return null;
+        }
+
+        try (PreparedStatement memberStatement =
+                     connection.prepareStatement("""
+                             SELECT uuid
+                             FROM loot_chest_members
+                             WHERE match_id = ?
+                             """)) {
+
+            memberStatement.setString(1, matchId.toString());
+
+            try (ResultSet results = memberStatement.executeQuery()) {
+                while (results.next()) {
+                    try {
+                        winners.add(UUID.fromString(
+                                results.getString("uuid")
+                        ));
+                    } catch (IllegalArgumentException exception) {
+                        plugin.getLogger().warning(
+                                "Invalid winner UUID in loot chest "
+                                        + matchId
+                        );
+                    }
+                }
+            }
+
+        } catch (SQLException exception) {
+            exception.printStackTrace();
+            return null;
+        }
+
+        try (PreparedStatement itemStatement =
+                     connection.prepareStatement("""
+                             SELECT item_slot, item_data
+                             FROM loot_chest_items
+                             WHERE match_id = ?
+                             ORDER BY item_slot ASC
+                             """)) {
+
+            itemStatement.setString(1, matchId.toString());
+
+            try (ResultSet results = itemStatement.executeQuery()) {
+                while (results.next()) {
+                    int slot = results.getInt("item_slot");
+                    byte[] data = results.getBytes("item_data");
+
+                    if (data == null || data.length == 0) {
+                        continue;
+                    }
+
+                    try {
+                        ItemStack item = ItemStack.deserializeBytes(data);
+
+                        if (item != null && !item.getType().isAir()) {
+                            items.put(slot, item);
+                        }
+                    } catch (Exception exception) {
+                        plugin.getLogger().warning(
+                                "Could not deserialize loot chest item "
+                                        + slot + " for match " + matchId
+                        );
+                    }
+                }
+            }
+
+        } catch (SQLException exception) {
+            exception.printStackTrace();
+            return null;
+        }
+
+        return new LootChestData(matchId, winners, items);
+    }
+
+    public boolean deleteLootChest(UUID matchId) {
+        if (!isConnected() || matchId == null) {
+            return false;
+        }
+
+        try (PreparedStatement statement =
+                     connection.prepareStatement(
+                             "DELETE FROM loot_chests WHERE match_id = ?"
+                     )) {
+
+            statement.setString(1, matchId.toString());
+            return statement.executeUpdate() > 0;
+
+        } catch (SQLException exception) {
+            plugin.getLogger().severe(
+                    "Could not delete loot chest for match " + matchId
+            );
+            exception.printStackTrace();
+            return false;
+        }
+    }
+
     public boolean isConnected() {
         try {
             return connection != null && !connection.isClosed();
@@ -351,6 +697,39 @@ public final class DatabaseManager {
 
         } catch (SQLException exception) {
             exception.printStackTrace();
+        }
+    }
+
+    public static final class LootChestData {
+
+        private final UUID matchId;
+        private final List<UUID> winners;
+        private final Map<Integer, ItemStack> items;
+
+        public LootChestData(
+                UUID matchId,
+                List<UUID> winners,
+                Map<Integer, ItemStack> items
+        ) {
+            this.matchId = matchId;
+            this.winners = new ArrayList<>(winners);
+            this.items = new HashMap<>(items);
+        }
+
+        public UUID getMatchId() {
+            return matchId;
+        }
+
+        public List<UUID> getWinners() {
+            return new ArrayList<>(winners);
+        }
+
+        public Map<Integer, ItemStack> getItems() {
+            return new HashMap<>(items);
+        }
+
+        public boolean isWinner(UUID playerId) {
+            return playerId != null && winners.contains(playerId);
         }
     }
 }
