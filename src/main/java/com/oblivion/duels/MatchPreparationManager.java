@@ -126,6 +126,20 @@ public final class MatchPreparationManager {
             }
         }
 
+        // Save spectator and exit locations for every participant.
+        if (plugin instanceof OblivionDuels duels) {
+
+            MatchDeathListener listener =
+                    duels.getMatchDeathListener();
+
+            if (listener != null) {
+                listener.saveParticipantSpawns(
+                        match,
+                        arena.getName()
+                );
+            }
+        }
+
         match.setState(DuelMatch.MatchState.COUNTDOWN);
 
         broadcast(
