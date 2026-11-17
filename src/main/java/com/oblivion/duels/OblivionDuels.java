@@ -382,13 +382,14 @@ public final class OblivionDuels extends JavaPlugin
 
         sender.sendMessage(color(INFO + "ᴀʀᴇɴᴀ sᴇᴛᴜᴘ ᴏʀᴅᴇʀ"));
         sender.sendMessage(color(DESCRIPTION + "1. " + SECONDARY + "/duels arena create <name>"));
-        sender.sendMessage(color(DESCRIPTION + "2. " + SECONDARY + "/duels arena wand"));
-        sender.sendMessage(color(DESCRIPTION + "3. " + SECONDARY + "Select both corners with the wand."));
-        sender.sendMessage(color(DESCRIPTION + "4. " + SECONDARY + "/duels arena setregion"));
-        sender.sendMessage(color(DESCRIPTION + "5. " + SECONDARY + "/duels arena setspawn a"));
-        sender.sendMessage(color(DESCRIPTION + "6. " + SECONDARY + "/duels arena setspawn b"));
-        sender.sendMessage(color(DESCRIPTION + "7. " + SECONDARY + "/duels arena setspectator"));
-        sender.sendMessage(color(DESCRIPTION + "8. " + SECONDARY + "/duels arena save"));
+        sender.sendMessage(color(DESCRIPTION + "2. " + SECONDARY + "/duels arena setsize <name> <1-5>"));
+        sender.sendMessage(color(DESCRIPTION + "3. " + SECONDARY + "/duels arena wand"));
+        sender.sendMessage(color(DESCRIPTION + "4. " + SECONDARY + "Select both corners with the wand."));
+        sender.sendMessage(color(DESCRIPTION + "5. " + SECONDARY + "/duels arena setregion"));
+        sender.sendMessage(color(DESCRIPTION + "6. " + SECONDARY + "/duels arena setspawn a"));
+        sender.sendMessage(color(DESCRIPTION + "7. " + SECONDARY + "/duels arena setspawn b"));
+        sender.sendMessage(color(DESCRIPTION + "8. " + SECONDARY + "/duels arena setspectator"));
+        sender.sendMessage(color(DESCRIPTION + "9. " + SECONDARY + "/duels arena save"));
 
         sender.sendMessage(color(INFO + "ᴏᴘᴛɪᴏɴᴀʟ"));
         sender.sendMessage(color(DESCRIPTION + "/duels setexit <arena>"));
@@ -715,6 +716,68 @@ public final class OblivionDuels extends JavaPlugin
                     return true;
                 }
 
+                if (action.equals("setsize")) {
+                    if (args.length < 4) {
+                        sendMessage(sender,
+                                "&cUsage: /duels arena setsize <name> <1-5>"
+                        );
+                        return true;
+                    }
+
+                    String arenaName = args[2];
+                    int teamSize;
+
+                    try {
+                        teamSize = Integer.parseInt(args[3]);
+                    } catch (NumberFormatException exception) {
+                        sendMessage(sender,
+                                "&cInvalid team size. Use a number from 1 to 5."
+                        );
+                        return true;
+                    }
+
+                    if (!arenaManager.isValidTeamSize(teamSize)) {
+                        sendMessage(sender,
+                                "&cTeam size must be between 1 and 5."
+                        );
+                        return true;
+                    }
+
+                    DuelArena arena = arenaManager.getArena(arenaName);
+
+                    if (arena == null) {
+                        sendMessage(sender,
+                                "&cArena not found: " + arenaName
+                        );
+                        return true;
+                    }
+
+                    if (arenaManager.isOccupied(arenaName)) {
+                        sendMessage(sender,
+                                "&cYou cannot change the size of an occupied arena."
+                        );
+                        return true;
+                    }
+
+                    if (!arenaManager.setArenaTeamSize(
+                            arenaName,
+                            teamSize
+                    )) {
+                        sendMessage(sender,
+                                "&cCould not update the arena size."
+                        );
+                        return true;
+                    }
+
+                    sendMessage(sender,
+                            "&aArena &f" + arena.getName()
+                                    + " &ais now configured for &f"
+                                    + teamSize + "v" + teamSize + "&a."
+                    );
+
+                    return true;
+                }
+
                 if (action.equals("delete")) {
                     handleArenaDelete(sender, args);
                     return true;
@@ -765,9 +828,10 @@ public final class OblivionDuels extends JavaPlugin
                     sendMessage(player, "&aCreated arena " + name + ".");
 
                     player.sendMessage(color(
-                            DESCRIPTION + "Next: use your wand to select "
-                                    + "two corners, then run "
-                                    + SECONDARY + "/duels arena setregion"
+                            DESCRIPTION + "Next: set its size with "
+                                    + SECONDARY
+                                    + "/duels arena setsize "
+                                    + name + " <1-5>"
                     ));
 
                     return true;
