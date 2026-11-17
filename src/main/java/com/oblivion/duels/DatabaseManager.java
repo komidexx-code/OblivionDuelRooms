@@ -1,3 +1,4 @@
+
 package com.oblivion.duels;
 
 import org.bukkit.inventory.ItemStack;
@@ -108,6 +109,10 @@ public final class DatabaseManager {
         }
     }
 
+    // =========================================================
+    // PLAYER STATISTICS
+    // =========================================================
+
     public void loadStats(StatsManager statsManager) {
         if (!isConnected()) {
             return;
@@ -216,6 +221,10 @@ public final class DatabaseManager {
             }
         }
     }
+
+    // =========================================================
+    // PENDING LOOT
+    // =========================================================
 
     public void savePendingLoot(
             UUID playerId,
@@ -361,9 +370,9 @@ public final class DatabaseManager {
         }
     }
 
-    /*
-     * Shared virtual loot chest storage.
-     */
+    // =========================================================
+    // SHARED VIRTUAL LOOT CHEST
+    // =========================================================
 
     public boolean saveLootChest(
             UUID matchId,
@@ -653,6 +662,51 @@ public final class DatabaseManager {
         return new LootChestData(matchId, winners, items);
     }
 
+    /**
+     * Finds the newest shared loot chest belonging to a player.
+     * Returns null if the player has no available chest.
+     */
+    public LootChestData findLatestLootChestForPlayer(UUID playerId) {
+        if (!isConnected() || playerId == null) {
+            return null;
+        }
+
+        String sql = """
+                SELECT c.match_id
+                FROM loot_chests c
+                INNER JOIN loot_chest_members m
+                    ON c.match_id = m.match_id
+                WHERE m.uuid = ?
+                ORDER BY c.created_at DESC, c.match_id DESC
+                LIMIT 1
+                """;
+
+        try (PreparedStatement statement =
+                     connection.prepareStatement(sql)) {
+
+            statement.setString(1, playerId.toString());
+
+            try (ResultSet results = statement.executeQuery()) {
+                if (!results.next()) {
+                    return null;
+                }
+
+                UUID matchId = UUID.fromString(
+                        results.getString("match_id")
+                );
+
+                return loadLootChest(matchId);
+            }
+
+        } catch (SQLException | IllegalArgumentException exception) {
+            plugin.getLogger().severe(
+                    "Could not find loot chest for " + playerId
+            );
+            exception.printStackTrace();
+            return null;
+        }
+    }
+
     public boolean deleteLootChest(UUID matchId) {
         if (!isConnected() || matchId == null) {
             return false;
@@ -674,6 +728,10 @@ public final class DatabaseManager {
             return false;
         }
     }
+
+    // =========================================================
+    // CONNECTION
+    // =========================================================
 
     public boolean isConnected() {
         try {
@@ -699,6 +757,10 @@ public final class DatabaseManager {
             exception.printStackTrace();
         }
     }
+
+    // =========================================================
+    // LOOT CHEST DATA
+    // =========================================================
 
     public static final class LootChestData {
 
