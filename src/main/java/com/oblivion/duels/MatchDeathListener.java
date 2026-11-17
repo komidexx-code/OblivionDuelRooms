@@ -51,7 +51,6 @@ public final class MatchDeathListener implements Listener {
     private final Map<UUID, BukkitTask> disconnectTasks = new HashMap<>();
     private final Map<UUID, BukkitTask> timeoutTasks = new HashMap<>();
 
-    // Match HUD
     private final Map<UUID, BukkitTask> hudTasks = new HashMap<>();
     private final Map<UUID, BossBar> matchBossBars = new HashMap<>();
 
@@ -804,6 +803,28 @@ public final class MatchDeathListener implements Listener {
     // =========================================================
     // ARENA SPAWNS
     // =========================================================
+
+    /**
+     * Saves the spectator and exit locations for every participant.
+     * Call this before teleporting players into the arena.
+     */
+    public void saveParticipantSpawns(
+            DuelMatch match,
+            String arenaName
+    ) {
+
+        if (match == null || arenaName == null) {
+            return;
+        }
+
+        for (UUID playerId : match.getTeamA()) {
+            setSpectatorSpawn(playerId, arenaName);
+        }
+
+        for (UUID playerId : match.getTeamB()) {
+            setSpectatorSpawn(playerId, arenaName);
+        }
+    }
 
     private void setSpectatorSpawn(
             UUID playerId,
