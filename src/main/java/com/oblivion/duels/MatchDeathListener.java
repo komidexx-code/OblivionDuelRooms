@@ -39,11 +39,22 @@ public final class MatchDeathListener implements Listener {
     private final Map<UUID, Location> spectatorSpawns = new HashMap<>();
     private final Map<UUID, Location> exitSpawns = new HashMap<>();
 
+    // Match-earned loot, separate from starting equipment.
     private final Map<UUID, Map<UUID, List<ItemStack>>> matchLoot =
             new HashMap<>();
 
     private final Map<UUID, List<ItemStack>> pendingLoot = new HashMap<>();
-    private final Map<UUID, List<ItemStack>> disconnectedInventories =
+
+    // Inventory snapshots taken when players disconnect.
+    private final Map<UUID, InventorySnapshot> disconnectedInventories =
+            new HashMap<>();
+
+    // Original equipment saved once when a match begins.
+    private final Map<UUID, Map<UUID, InventorySnapshot>>
+            startingInventories = new HashMap<>();
+
+    // Original equipment for players who are offline when a match ends.
+    private final Map<UUID, InventorySnapshot> pendingStartingInventories =
             new HashMap<>();
 
     private final Set<UUID> eliminatedDisconnectedPlayers = new HashSet<>();
@@ -57,7 +68,8 @@ public final class MatchDeathListener implements Listener {
     private final Map<UUID, Scoreboard> matchScoreboards = new HashMap<>();
     private final Map<UUID, Scoreboard> previousScoreboards = new HashMap<>();
 
-    private long matchEndTimesPlaceholder;
+    // Prevents the same round from being scored more than once.
+    private final Map<UUID, Integer> resolvedRounds = new HashMap<>();
 
     public MatchDeathListener(
             JavaPlugin plugin,
@@ -78,6 +90,97 @@ public final class MatchDeathListener implements Listener {
                         : null;
 
         Bukkit.getPluginManager().registerEvents(this, plugin);
+    }
+
+    // =========================================================
+    // STARTING INVENTORY MANAGEMENT
+    // =========================================================
+
+    /**
+     * Capture each participant's original inventory.
+     * Call once before the first round begins.
+     */
+    public void captureStartingInventories(DuelMatch match) {
+
+        if (match == null) {
+            return;
+        }
+
+        UUID matchId = match.getMatchId();
+
+        Map<UUID, InventorySnapshot> snapshots =
+                startingInventories.computeIfAbsent(
+                        matchId,
+                        key -> new HashMap<>()
+                );
+
+        for (UUID playerId : match.getTeamA()) {
+            captureStartingInventory(playerId, snapshots);
+        }
+
+        for (UUID playerId : match.getTeamB()) {
+            captureStartingInventory(playerId, snapshots);
+        }
+    }
+
+    private void captureStartingInventory(
+            UUID playerId,
+            Map<UUID, InventorySnapshot> snapshots
+    ) {
+
+        if (snapshots.containsKey(playerId)) {
+            return;
+        }
+
+        Player player = Bukkit.getPlayer(playerId);
+
+        if (player != null && player.isOnline()) {
+            snapshots.put(
+                    playerId,
+                    InventorySnapshot.capture(player)
+            );
+        }
+    }
+
+    /**
+     * Restore the original equipment before a new round.
+     * Earned loot is intentionally not restored here.
+     */
+    public void restoreStartingInventories(DuelMatch match) {
+
+        if (match == null) {
+            return;
+        }
+
+        Map<UUID, InventorySnapshot> snapshots =
+                startingInventories.get(match.getMatchId());
+
+        if (snapshots == null) {
+            return;
+        }
+
+        for (UUID playerId : match.getTeamA()) {
+            restoreStartingInventory(playerId, snapshots);
+        }
+
+        for (UUID playerId : match.getTeamB()) {
+            restoreStartingInventory(playerId, snapshots);
+        }
+    }
+
+    private void restoreStartingInventory(
+            UUID playerId,
+            Map<UUID, InventorySnapshot> snapshots
+    ) {
+
+        Player player = Bukkit.getPlayer(playerId);
+        InventorySnapshot snapshot = snapshots.get(playerId);
+
+        if (player == null || !player.isOnline() || snapshot == null) {
+            return;
+        }
+
+        snapshot.restore(player);
     }
 
     // =========================================================
@@ -124,19 +227,12 @@ public final class MatchDeathListener implements Listener {
                         return;
                     }
 
-                    int teamAAlive = match.getAliveCount(
-                            DuelMatch.WinningTeam.TEAM_A
-                    );
-
-                    int teamBAlive = match.getAliveCount(
-                            DuelMatch.WinningTeam.TEAM_B
-                    );
-
                     DuelMatch.WinningTeam winner;
 
-                    if (teamAAlive > teamBAlive) {
+                    if (match.getTeamAScore() > match.getTeamBScore()) {
                         winner = DuelMatch.WinningTeam.TEAM_A;
-                    } else if (teamBAlive > teamAAlive) {
+                    } else if (match.getTeamBScore()
+                            > match.getTeamAScore()) {
                         winner = DuelMatch.WinningTeam.TEAM_B;
                     } else {
                         winner = DuelMatch.WinningTeam.DRAW;
@@ -151,7 +247,7 @@ public final class MatchDeathListener implements Listener {
                                 match,
                                 arenaName,
                                 ChatColor.YELLOW
-                                        + "Match timed out! It ended in a draw.",
+                                        + "Match timed out! The series is tied.",
                                 winner
                         );
 
@@ -166,7 +262,7 @@ public final class MatchDeathListener implements Listener {
                                 arenaName,
                                 ChatColor.GREEN
                                         + "Match timed out! "
-                                        + winningTeam + " wins!",
+                                        + winningTeam + " wins the series!",
                                 winner
                         );
                     }
@@ -302,7 +398,6 @@ public final class MatchDeathListener implements Listener {
                 "match-hud.scoreboard.enabled",
                 true
         )) {
-
             createPlayerScoreboard(match, player);
         }
     }
@@ -361,7 +456,6 @@ public final class MatchDeathListener implements Listener {
         }
 
         updatePlayerScoreboard(match, playerId);
-
         player.setScoreboard(scoreboard);
     }
 
@@ -422,24 +516,8 @@ public final class MatchDeathListener implements Listener {
     }
 
     // =========================================================
-    // SCORE AWARDING AND SOUND
+    // SCORE SOUND
     // =========================================================
-
-    private void awardEliminationPoint(
-            DuelMatch match,
-            UUID eliminatedPlayer
-    ) {
-
-        if (match == null
-                || match.getState() != DuelMatch.MatchState.ACTIVE) {
-            return;
-        }
-
-        match.awardPointToOpposingTeam(eliminatedPlayer);
-
-        updateMatchScoreboards(match);
-        playScoreSound(match);
-    }
 
     private void playScoreSound(DuelMatch match) {
 
@@ -609,7 +687,7 @@ public final class MatchDeathListener implements Listener {
         cancelDisconnectTask(playerId);
         disconnectedInventories.remove(playerId);
 
-        saveInventory(match, player);
+        saveEarnedInventory(match, player);
 
         event.setKeepInventory(false);
         event.getDrops().clear();
@@ -643,8 +721,6 @@ public final class MatchDeathListener implements Listener {
             return;
         }
 
-        awardEliminationPoint(match, playerId);
-
         broadcast(
                 match,
                 ChatColor.RED + player.getName()
@@ -677,7 +753,7 @@ public final class MatchDeathListener implements Listener {
 
         disconnectedInventories.put(
                 playerId,
-                snapshotInventory(player)
+                InventorySnapshot.capture(player)
         );
 
         int graceSeconds = Math.max(
@@ -714,15 +790,11 @@ public final class MatchDeathListener implements Listener {
                         return;
                     }
 
-                    List<ItemStack> inventory =
+                    InventorySnapshot snapshot =
                             disconnectedInventories.remove(playerId);
 
-                    if (inventory != null && !inventory.isEmpty()) {
-
-                        matchLoot.computeIfAbsent(
-                                match.getMatchId(),
-                                key -> new HashMap<>()
-                        ).put(playerId, inventory);
+                    if (snapshot != null) {
+                        saveEarnedSnapshot(match, playerId, snapshot);
                     }
 
                     eliminatedDisconnectedPlayers.add(playerId);
@@ -741,8 +813,6 @@ public final class MatchDeathListener implements Listener {
                     statsManager.addDeath(playerId);
                     saveStats(playerId);
 
-                    awardEliminationPoint(match, playerId);
-
                     broadcast(
                             match,
                             ChatColor.RED
@@ -758,7 +828,7 @@ public final class MatchDeathListener implements Listener {
     }
 
     // =========================================================
-    // MATCH WINNER
+    // ROUND AND MATCH WINNER
     // =========================================================
 
     private void checkMatchWinner(
@@ -770,44 +840,148 @@ public final class MatchDeathListener implements Listener {
             return;
         }
 
-        if (match.getAliveCount() == 0) {
+        DuelMatch.WinningTeam roundWinner = match.getWinner();
+
+        if (roundWinner == DuelMatch.WinningTeam.NONE) {
+            return;
+        }
+
+        UUID matchId = match.getMatchId();
+        int round = match.getCurrentRound();
+
+        if (resolvedRounds.getOrDefault(matchId, 0) == round) {
+            return;
+        }
+
+        // Mark the round before doing anything else.
+        resolvedRounds.put(matchId, round);
+
+        match.recordRoundResult(roundWinner);
+
+        updateMatchScoreboards(match);
+        playScoreSound(match);
+
+        String roundMessage;
+
+        if (roundWinner == DuelMatch.WinningTeam.DRAW) {
+            roundMessage = ChatColor.YELLOW + "ROUND " + round + " DRAW!";
+        } else {
+            String teamName =
+                    roundWinner == DuelMatch.WinningTeam.TEAM_A
+                            ? "TEAM A" : "TEAM B";
+
+            roundMessage = ChatColor.GOLD
+                    + teamName + " WON ROUND " + round + "!";
+        }
+
+        String scoreMessage = ChatColor.YELLOW
+                + "TEAM A " + match.getTeamAScore()
+                + " - " + match.getTeamBScore()
+                + " TEAM B";
+
+        for (UUID playerId : match.getTeamA()) {
+            Player player = Bukkit.getPlayer(playerId);
+
+            if (player != null) {
+                player.sendTitle(
+                        roundMessage,
+                        scoreMessage,
+                        5,
+                        50,
+                        10
+                );
+            }
+        }
+
+        for (UUID playerId : match.getTeamB()) {
+            Player player = Bukkit.getPlayer(playerId);
+
+            if (player != null) {
+                player.sendTitle(
+                        roundMessage,
+                        scoreMessage,
+                        5,
+                        50,
+                        10
+                );
+            }
+        }
+
+        broadcast(match, roundMessage);
+        broadcast(match, scoreMessage);
+
+        DuelMatch.WinningTeam matchWinner = match.getMatchWinner();
+
+        if (matchWinner != DuelMatch.WinningTeam.NONE) {
+
+            String finalMessage;
+
+            if (matchWinner == DuelMatch.WinningTeam.DRAW) {
+                finalMessage = ChatColor.YELLOW
+                        + "The best-of-three match ended in a draw!";
+            } else {
+                String teamName =
+                        matchWinner == DuelMatch.WinningTeam.TEAM_A
+                                ? "Team A" : "Team B";
+
+                finalMessage = ChatColor.GREEN
+                        + teamName + " wins the match!";
+            }
 
             finishMatch(
                     match,
                     arenaName,
-                    "The match ended in a draw.",
-                    DuelMatch.WinningTeam.DRAW
+                    finalMessage,
+                    matchWinner
             );
 
             return;
         }
 
-        DuelMatch.WinningTeam winner = match.getWinner();
+        // Prepare the next round without restarting the match timer.
+        DuelArena arena = arenaName == null
+                ? null
+                : arenaManager.getArena(arenaName);
 
-        if (winner == DuelMatch.WinningTeam.TEAM_A
-                || winner == DuelMatch.WinningTeam.TEAM_B) {
-
-            String winningTeam =
-                    winner == DuelMatch.WinningTeam.TEAM_A
-                            ? "Team A" : "Team B";
+        if (arena == null
+                || !(plugin instanceof OblivionDuels duels)
+                || duels.getMatchmakingCoordinator() == null) {
 
             finishMatch(
                     match,
                     arenaName,
-                    ChatColor.GREEN + winningTeam + " wins!",
-                    winner
+                    ChatColor.RED
+                            + "The next round could not be prepared.",
+                    getCurrentSeriesLeader(match)
             );
+
+            return;
         }
+
+        duels.getMatchmakingCoordinator()
+                .getPreparationManager()
+                .prepareNextRound(match, arena);
+    }
+
+    private DuelMatch.WinningTeam getCurrentSeriesLeader(
+            DuelMatch match
+    ) {
+
+        if (match.getTeamAScore() > match.getTeamBScore()) {
+            return DuelMatch.WinningTeam.TEAM_A;
+        }
+
+        if (match.getTeamBScore() > match.getTeamAScore()) {
+            return DuelMatch.WinningTeam.TEAM_B;
+        }
+
+        return DuelMatch.WinningTeam.DRAW;
     }
 
     // =========================================================
     // ARENA SPAWNS
     // =========================================================
 
-    /**
-     * Saves the spectator and exit locations for every participant.
-     * Call this before teleporting players into the arena.
-     */
     public void saveParticipantSpawns(
             DuelMatch match,
             String arenaName
@@ -865,41 +1039,139 @@ public final class MatchDeathListener implements Listener {
     }
 
     // =========================================================
-    // INVENTORY
+    // EARNED LOOT TRACKING
     // =========================================================
 
-    private List<ItemStack> snapshotInventory(Player player) {
+    private void saveEarnedInventory(
+            DuelMatch match,
+            Player player
+    ) {
 
-        List<ItemStack> items = new ArrayList<>();
+        InventorySnapshot current = InventorySnapshot.capture(player);
 
-        for (ItemStack item :
-                player.getInventory().getStorageContents()) {
-            addCopy(items, item);
-        }
-
-        for (ItemStack item :
-                player.getInventory().getArmorContents()) {
-            addCopy(items, item);
-        }
-
-        addCopy(
-                items,
-                player.getInventory().getItemInOffHand()
+        saveEarnedSnapshot(
+                match,
+                player.getUniqueId(),
+                current
         );
 
-        return items;
+        clearInventory(player);
     }
 
-    private void saveInventory(DuelMatch match, Player player) {
+    private void saveEarnedSnapshot(
+            DuelMatch match,
+            UUID playerId,
+            InventorySnapshot current
+    ) {
 
-        List<ItemStack> items = snapshotInventory(player);
+        if (match == null || current == null) {
+            return;
+        }
 
-        matchLoot.computeIfAbsent(
+        InventorySnapshot starting = getStartingSnapshot(
+                match.getMatchId(),
+                playerId
+        );
+
+        List<ItemStack> earned = calculateEarnedItems(
+                starting,
+                current
+        );
+
+        if (earned.isEmpty()) {
+            return;
+        }
+
+        List<ItemStack> stored = matchLoot.computeIfAbsent(
                 match.getMatchId(),
                 key -> new HashMap<>()
-        ).put(player.getUniqueId(), items);
+        ).computeIfAbsent(
+                playerId,
+                key -> new ArrayList<>()
+        );
 
-        clearInventory(player);
+        for (ItemStack item : earned) {
+            addCopy(stored, item);
+        }
+    }
+
+    private InventorySnapshot getStartingSnapshot(
+            UUID matchId,
+            UUID playerId
+    ) {
+
+        Map<UUID, InventorySnapshot> snapshots =
+                startingInventories.get(matchId);
+
+        if (snapshots == null) {
+            return null;
+        }
+
+        return snapshots.get(playerId);
+    }
+
+    /**
+     * Subtracts the original starting items from the current inventory.
+     * Only the remaining quantities are considered earned loot.
+     */
+    private List<ItemStack> calculateEarnedItems(
+            InventorySnapshot starting,
+            InventorySnapshot current
+    ) {
+
+        List<ItemStack> earned = new ArrayList<>();
+
+        List<ItemStack> remainingStarting = new ArrayList<>();
+
+        if (starting != null) {
+            for (ItemStack item : starting.getAllItems()) {
+                addCopy(remainingStarting, item);
+            }
+        }
+
+        for (ItemStack currentItem : current.getAllItems()) {
+
+            if (currentItem == null || currentItem.getType().isAir()) {
+                continue;
+            }
+
+            int remainingAmount = currentItem.getAmount();
+
+            for (int i = 0;
+                 i < remainingStarting.size() && remainingAmount > 0;
+                 i++) {
+
+                ItemStack startingItem = remainingStarting.get(i);
+
+                if (!startingItem.isSimilar(currentItem)) {
+                    continue;
+                }
+
+                int used = Math.min(
+                        remainingAmount,
+                        startingItem.getAmount()
+                );
+
+                remainingAmount -= used;
+
+                int newAmount = startingItem.getAmount() - used;
+
+                if (newAmount <= 0) {
+                    remainingStarting.remove(i);
+                    i--;
+                } else {
+                    startingItem.setAmount(newAmount);
+                }
+            }
+
+            if (remainingAmount > 0) {
+                ItemStack earnedItem = currentItem.clone();
+                earnedItem.setAmount(remainingAmount);
+                earned.add(earnedItem);
+            }
+        }
+
+        return earned;
     }
 
     private void addCopy(List<ItemStack> items, ItemStack item) {
@@ -933,6 +1205,9 @@ public final class MatchDeathListener implements Listener {
             return;
         }
 
+        // Collect the final round's earned items before restoring equipment.
+        collectFinalInventories(match);
+
         match.setState(DuelMatch.MatchState.ENDING);
 
         removeMatchHud(match);
@@ -954,6 +1229,7 @@ public final class MatchDeathListener implements Listener {
         broadcast(match, message);
 
         restoreParticipants(match);
+        resolvedRounds.remove(match.getMatchId());
 
         matchManager.endMatch(match.getMatchId());
 
@@ -980,7 +1256,66 @@ public final class MatchDeathListener implements Listener {
         );
     }
 
+    private void collectFinalInventories(DuelMatch match) {
+
+        UUID matchId = match.getMatchId();
+
+        for (UUID playerId : match.getTeamA()) {
+            collectFinalInventory(match, playerId);
+        }
+
+        for (UUID playerId : match.getTeamB()) {
+            collectFinalInventory(match, playerId);
+        }
+
+        // Include snapshots from players whose disconnect grace period
+        // has not yet expired.
+        for (UUID playerId : match.getTeamA()) {
+            collectDisconnectedInventory(match, playerId);
+        }
+
+        for (UUID playerId : match.getTeamB()) {
+            collectDisconnectedInventory(match, playerId);
+        }
+    }
+
+    private void collectFinalInventory(
+            DuelMatch match,
+            UUID playerId
+    ) {
+
+        Player player = Bukkit.getPlayer(playerId);
+
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+
+        saveEarnedSnapshot(
+                match,
+                playerId,
+                InventorySnapshot.capture(player)
+        );
+    }
+
+    private void collectDisconnectedInventory(
+            DuelMatch match,
+            UUID playerId
+    ) {
+
+        InventorySnapshot snapshot =
+                disconnectedInventories.remove(playerId);
+
+        if (snapshot != null) {
+            saveEarnedSnapshot(match, playerId, snapshot);
+        }
+    }
+
     private void restoreParticipants(DuelMatch match) {
+
+        UUID matchId = match.getMatchId();
+
+        Map<UUID, InventorySnapshot> snapshots =
+                startingInventories.remove(matchId);
 
         Set<UUID> participants = new HashSet<>();
 
@@ -991,7 +1326,15 @@ public final class MatchDeathListener implements Listener {
 
             Player player = Bukkit.getPlayer(playerId);
 
+            InventorySnapshot starting =
+                    snapshots == null ? null : snapshots.get(playerId);
+
             if (player != null && player.isOnline()) {
+
+                // Restore the player's original equipment.
+                if (starting != null) {
+                    starting.restore(player);
+                }
 
                 player.setGameMode(GameMode.SURVIVAL);
 
@@ -1005,6 +1348,11 @@ public final class MatchDeathListener implements Listener {
                 spectatorSpawns.remove(playerId);
                 exitSpawns.remove(playerId);
                 eliminatedDisconnectedPlayers.remove(playerId);
+
+            } else if (starting != null) {
+
+                // Keep the original equipment for their next login.
+                pendingStartingInventories.put(playerId, starting);
             }
         }
     }
@@ -1060,30 +1408,63 @@ public final class MatchDeathListener implements Listener {
             return;
         }
 
-        List<UUID> winners = new ArrayList<>(
+        List<UUID> winningTeam = new ArrayList<>(
                 winner == DuelMatch.WinningTeam.TEAM_A
                         ? match.getTeamA()
                         : match.getTeamB()
         );
 
-        if (winners.isEmpty()) {
+        List<UUID> losingTeam = new ArrayList<>(
+                winner == DuelMatch.WinningTeam.TEAM_A
+                        ? match.getTeamB()
+                        : match.getTeamA()
+        );
+
+        // Return the winning team's own earned items to their owners.
+        for (UUID winnerId : winningTeam) {
+
+            List<ItemStack> ownLoot = savedLoot.get(winnerId);
+
+            if (ownLoot != null) {
+                giveItems(winnerId, ownLoot);
+            }
+        }
+
+        // Transfer the losing team's earned loot to the winning team.
+        List<ItemStack> losingLoot = new ArrayList<>();
+
+        for (UUID loserId : losingTeam) {
+
+            List<ItemStack> items = savedLoot.get(loserId);
+
+            if (items != null) {
+                for (ItemStack item : items) {
+                    addCopy(losingLoot, item);
+                }
+            }
+        }
+
+        if (winningTeam.isEmpty()) {
             return;
         }
 
         int recipientIndex = 0;
 
-        for (List<ItemStack> items : savedLoot.values()) {
+        for (ItemStack item : losingLoot) {
 
-            UUID recipient = winners.get(
-                    recipientIndex % winners.size()
+            UUID recipient = winningTeam.get(
+                    recipientIndex % winningTeam.size()
             );
 
-            giveItems(recipient, items);
+            giveItems(
+                    recipient,
+                    Collections.singletonList(item)
+            );
 
             recipientIndex++;
         }
 
-        for (UUID winnerId : winners) {
+        for (UUID winnerId : winningTeam) {
 
             Player player = Bukkit.getPlayer(winnerId);
 
@@ -1219,20 +1600,28 @@ public final class MatchDeathListener implements Listener {
 
             setupPlayerHud(match, playerId);
 
-        } else if (wasEliminatedWhileDisconnected
-                || exitSpawns.containsKey(playerId)) {
-
-            clearInventory(player);
-            restorePlayerAfterMatch(player, playerId);
-            restorePlayerScoreboard(playerId);
-
         } else {
 
-            restorePlayerScoreboard(playerId);
+            InventorySnapshot pendingStarting =
+                    pendingStartingInventories.remove(playerId);
+
+            if (pendingStarting != null) {
+                pendingStarting.restore(player);
+            }
+
+            if (wasEliminatedWhileDisconnected
+                    || exitSpawns.containsKey(playerId)) {
+
+                restorePlayerAfterMatch(player, playerId);
+                restorePlayerScoreboard(playerId);
+
+            } else {
+
+                restorePlayerScoreboard(playerId);
+            }
         }
 
         disconnectedInventories.remove(playerId);
-
         deliverPendingLoot(player);
     }
 
@@ -1430,6 +1819,91 @@ public final class MatchDeathListener implements Listener {
                                 + ChatColor.RESET + message
                 );
             }
+        }
+    }
+
+    // =========================================================
+    // INVENTORY SNAPSHOT
+    // =========================================================
+
+    private static final class InventorySnapshot {
+
+        private final ItemStack[] storage;
+        private final ItemStack[] armor;
+        private final ItemStack offhand;
+
+        private InventorySnapshot(
+                ItemStack[] storage,
+                ItemStack[] armor,
+                ItemStack offhand
+        ) {
+            this.storage = cloneContents(storage);
+            this.armor = cloneContents(armor);
+            this.offhand = offhand == null ? null : offhand.clone();
+        }
+
+        private static InventorySnapshot capture(Player player) {
+
+            return new InventorySnapshot(
+                    player.getInventory().getStorageContents(),
+                    player.getInventory().getArmorContents(),
+                    player.getInventory().getItemInOffHand()
+            );
+        }
+
+        private void restore(Player player) {
+
+            player.getInventory().setStorageContents(
+                    cloneContents(storage)
+            );
+
+            player.getInventory().setArmorContents(
+                    cloneContents(armor)
+            );
+
+            player.getInventory().setItemInOffHand(
+                    offhand == null ? null : offhand.clone()
+            );
+        }
+
+        private List<ItemStack> getAllItems() {
+
+            List<ItemStack> items = new ArrayList<>();
+
+            for (ItemStack item : storage) {
+                if (item != null && !item.getType().isAir()) {
+                    items.add(item.clone());
+                }
+            }
+
+            for (ItemStack item : armor) {
+                if (item != null && !item.getType().isAir()) {
+                    items.add(item.clone());
+                }
+            }
+
+            if (offhand != null && !offhand.getType().isAir()) {
+                items.add(offhand.clone());
+            }
+
+            return items;
+        }
+
+        private static ItemStack[] cloneContents(ItemStack[] contents) {
+
+            if (contents == null) {
+                return new ItemStack[0];
+            }
+
+            ItemStack[] cloned = new ItemStack[contents.length];
+
+            for (int i = 0; i < contents.length; i++) {
+                cloned[i] = contents[i] == null
+                        ? null
+                        : contents[i].clone();
+            }
+
+            return cloned;
         }
     }
 
