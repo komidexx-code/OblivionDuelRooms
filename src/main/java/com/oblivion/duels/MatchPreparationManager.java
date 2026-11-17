@@ -3,6 +3,7 @@ package com.oblivion.duels;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -52,9 +53,7 @@ public final class MatchPreparationManager {
             return false;
         }
 
-        if (!arena.isReady()
-                || arena.getTeamSize() != match.getTeamA().size()
-                || match.getTeamA().size() != match.getTeamB().size()) {
+        if (!isArenaValid(match, arena)) {
             abortMatch(match, arena, "Arena is invalid for this match.");
             return false;
         }
@@ -96,49 +95,16 @@ public final class MatchPreparationManager {
 
         originalLocations.put(matchId, savedLocations);
 
-        for (UUID id : match.getTeamA()) {
-            Player player = Bukkit.getPlayer(id);
-
-            if (player == null
-                    || !player.isOnline()
-                    || !player.teleport(arena.getTeamASpawn())) {
-                abortMatch(
-                        match,
-                        arena,
-                        "A player could not be teleported."
-                );
-                return false;
-            }
+        if (!teleportTeams(match, arena)) {
+            abortMatch(
+                    match,
+                    arena,
+                    "A player could not be teleported."
+            );
+            return false;
         }
 
-        for (UUID id : match.getTeamB()) {
-            Player player = Bukkit.getPlayer(id);
-
-            if (player == null
-                    || !player.isOnline()
-                    || !player.teleport(arena.getTeamBSpawn())) {
-                abortMatch(
-                        match,
-                        arena,
-                        "A player could not be teleported."
-                );
-                return false;
-            }
-        }
-
-        // Save spectator and exit locations for every participant.
-        if (plugin instanceof OblivionDuels duels) {
-
-            MatchDeathListener listener =
-                    duels.getMatchDeathListener();
-
-            if (listener != null) {
-                listener.saveParticipantSpawns(
-                        match,
-                        arena.getName()
-                );
-            }
-        }
+        saveParticipantSpawns(match, arena);
 
         match.setState(DuelMatch.MatchState.COUNTDOWN);
 
@@ -150,14 +116,143 @@ public final class MatchPreparationManager {
                         + "Match starting soon!"
         );
 
-        startCountdown(match, arena);
+        startCountdown(match, arena, true);
 
         return true;
     }
 
-    private void startCountdown(
+    /**
+     * Prepares the next round without restarting arena rollback tracking
+     * or resetting the overall match timeout.
+     */
+    public boolean prepareNextRound(
             DuelMatch match,
             DuelArena arena
+    ) {
+        if (match == null
+                || match.getState() != DuelMatch.MatchState.ACTIVE) {
+            return false;
+        }
+
+        if (arena == null || !isArenaValid(match, arena)) {
+            abortMatch(match, arena, "Arena is invalid for the next round.");
+            return false;
+        }
+
+        UUID matchId = match.getMatchId();
+
+        if (matchManager.getMatch(matchId) != match) {
+            return false;
+        }
+
+        if (!match.advanceRound()) {
+            return false;
+        }
+
+        match.setState(DuelMatch.MatchState.COUNTDOWN);
+
+        if (!teleportTeams(match, arena)) {
+            abortMatch(
+                    match,
+                    arena,
+                    "A player could not be prepared for the next round."
+            );
+            return false;
+        }
+
+        broadcast(
+                match,
+                ChatColor.LIGHT_PURPLE
+                        + "Round "
+                        + match.getCurrentRound()
+                        + " is starting soon!"
+        );
+
+        startCountdown(match, arena, false);
+
+        return true;
+    }
+
+    private boolean isArenaValid(
+            DuelMatch match,
+            DuelArena arena
+    ) {
+        return arena.isReady()
+                && arena.getTeamSize() == match.getTeamA().size()
+                && match.getTeamA().size() == match.getTeamB().size();
+    }
+
+    private boolean teleportTeams(
+            DuelMatch match,
+            DuelArena arena
+    ) {
+        for (UUID id : match.getTeamA()) {
+            Player player = Bukkit.getPlayer(id);
+
+            if (!preparePlayer(player, arena.getTeamASpawn())) {
+                return false;
+            }
+        }
+
+        for (UUID id : match.getTeamB()) {
+            Player player = Bukkit.getPlayer(id);
+
+            if (!preparePlayer(player, arena.getTeamBSpawn())) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private boolean preparePlayer(
+            Player player,
+            Location spawn
+    ) {
+        if (player == null
+                || !player.isOnline()
+                || spawn == null
+                || !player.teleport(spawn)) {
+            return false;
+        }
+
+        player.setGameMode(GameMode.SURVIVAL);
+        player.setAllowFlight(false);
+        player.setFlying(false);
+        player.setHealth(player.getMaxHealth());
+        player.setFoodLevel(20);
+        player.setSaturation(20.0f);
+        player.setFireTicks(0);
+        player.setFallDistance(0.0f);
+        player.setExp(0.0f);
+        player.setLevel(0);
+
+        return true;
+    }
+
+    private void saveParticipantSpawns(
+            DuelMatch match,
+            DuelArena arena
+    ) {
+        if (!(plugin instanceof OblivionDuels duels)) {
+            return;
+        }
+
+        MatchDeathListener listener =
+                duels.getMatchDeathListener();
+
+        if (listener != null) {
+            listener.saveParticipantSpawns(
+                    match,
+                    arena.getName()
+            );
+        }
+    }
+
+    private void startCountdown(
+            DuelMatch match,
+            DuelArena arena,
+            boolean startMatchTimeout
     ) {
         int seconds = Math.max(
                 1,
@@ -168,6 +263,12 @@ public final class MatchPreparationManager {
         );
 
         UUID matchId = match.getMatchId();
+
+        BukkitTask previousTask = countdownTasks.remove(matchId);
+
+        if (previousTask != null) {
+            previousTask.cancel();
+        }
 
         BukkitTask task = new BukkitRunnable() {
 
@@ -213,14 +314,18 @@ public final class MatchPreparationManager {
                 if (remaining <= 0) {
                     match.setState(DuelMatch.MatchState.ACTIVE);
 
-                    originalLocations.remove(matchId);
+                    if (startMatchTimeout) {
+                        originalLocations.remove(matchId);
+                    }
 
                     broadcast(
                             match,
                             ChatColor.GREEN + "FIGHT!"
                     );
 
-                    if (plugin instanceof OblivionDuels duels) {
+                    if (startMatchTimeout
+                            && plugin instanceof OblivionDuels duels) {
+
                         MatchDeathListener listener =
                                 duels.getMatchDeathListener();
 
@@ -237,7 +342,9 @@ public final class MatchPreparationManager {
                 broadcast(
                         match,
                         ChatColor.YELLOW
-                                + "Match starts in "
+                                + "Round "
+                                + match.getCurrentRound()
+                                + " starts in "
                                 + remaining
                                 + "..."
                 );
