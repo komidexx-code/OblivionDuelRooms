@@ -1,4 +1,3 @@
-
 package com.oblivion.duels;
 
 import java.util.ArrayList;
@@ -38,6 +37,7 @@ public final class DuelMatch {
 
     private int currentRound = 1;
     private int completedRounds;
+    private int lastRecordedRound;
 
     public DuelMatch(
             int teamSize,
@@ -160,8 +160,7 @@ public final class DuelMatch {
     }
 
     /**
-     * Records one completed round.
-     * A draw completes the round without awarding a point.
+     * Records a round result only once for the current round.
      */
     public void recordRoundResult(WinningTeam winner) {
         if (winner == null || winner == WinningTeam.NONE) {
@@ -169,10 +168,12 @@ public final class DuelMatch {
         }
 
         if (getMatchWinner() != WinningTeam.NONE
-                || completedRounds >= 3) {
+                || completedRounds >= 3
+                || lastRecordedRound == currentRound) {
             return;
         }
 
+        lastRecordedRound = currentRound;
         completedRounds++;
 
         if (winner == WinningTeam.TEAM_A) {
@@ -193,11 +194,6 @@ public final class DuelMatch {
         recordRoundResult(WinningTeam.DRAW);
     }
 
-    /**
-     * Returns the final match winner.
-     * A team wins immediately after reaching two round wins.
-     * After three completed rounds, the higher score wins.
-     */
     public WinningTeam getMatchWinner() {
         if (teamAScore >= 2) {
             return WinningTeam.TEAM_A;
@@ -222,10 +218,6 @@ public final class DuelMatch {
         return WinningTeam.NONE;
     }
 
-    /**
-     * Advances to the next round and revives all participants.
-     * Returns false if no further round can be played.
-     */
     public boolean advanceRound() {
         if (getMatchWinner() != WinningTeam.NONE
                 || completedRounds >= 3
@@ -247,7 +239,7 @@ public final class DuelMatch {
 
     /**
      * Legacy method retained for compatibility.
-     * Round scoring should use recordRoundResult() instead.
+     * Do not use this for best-of-three round scoring.
      */
     public void awardPointToOpposingTeam(UUID eliminatedPlayer) {
         if (eliminatedPlayer == null) {
@@ -332,10 +324,6 @@ public final class DuelMatch {
         return new ArrayList<>(alivePlayers);
     }
 
-    /**
-     * Determines the winner of the current round
-     * based on which team still has living players.
-     */
     public WinningTeam getWinner() {
         int teamAAlive = getAliveCount(WinningTeam.TEAM_A);
         int teamBAlive = getAliveCount(WinningTeam.TEAM_B);
