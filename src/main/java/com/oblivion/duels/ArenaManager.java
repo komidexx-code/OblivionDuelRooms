@@ -7,8 +7,10 @@ import org.bukkit.World;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -79,7 +81,44 @@ public final class ArenaManager {
         return true;
     }
 
-    private boolean isValidTeamSize(int teamSize) {
+    public boolean deleteArena(String name) {
+        if (name == null || name.isBlank()) {
+            return false;
+        }
+
+        String key = normalizeName(name);
+
+        if (occupiedArenas.contains(key)) {
+            return false;
+        }
+
+        if (!arenas.containsKey(key)) {
+            return false;
+        }
+
+        arenas.remove(key);
+        plugin.getConfig().set("arenas." + name, null);
+        plugin.saveConfig();
+
+        return true;
+    }
+
+    public boolean arenaExists(String name) {
+        return name != null
+                && arenas.containsKey(normalizeName(name));
+    }
+
+    public List<String> getArenaNames() {
+        List<String> names = new ArrayList<>();
+
+        for (DuelArena arena : arenas.values()) {
+            names.add(arena.getName());
+        }
+
+        return names;
+    }
+
+    public boolean isValidTeamSize(int teamSize) {
         return teamSize >= 1 && teamSize <= 5;
     }
 
