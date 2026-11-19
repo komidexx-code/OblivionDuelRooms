@@ -26,6 +26,9 @@ public final class MatchPreparationManager {
     private final Map<UUID, BukkitTask> countdownTasks =
             new HashMap<>();
 
+    private final Map<UUID, BukkitTask> pendingRoundTasks =
+            new HashMap<>();
+
     private final Map<UUID, Map<UUID, Location>> originalLocations =
             new HashMap<>();
 
@@ -137,8 +140,11 @@ public final class MatchPreparationManager {
     // =========================================================
 
     /**
-     * Prepares the next round without restarting arena rollback
-     * tracking or the overall match timeout.
+     * Queues the next round.
+     *
+     * The match remains ACTIVE while waiting for all participants
+     * to finish their respawn process. The round is not advanced
+     * until everyone is online and no longer dead.
      */
     public boolean prepareNextRound(
             DuelMatch match,
@@ -161,8 +167,152 @@ public final class MatchPreparationManager {
             return false;
         }
 
-        if (!match.advanceRound()) {
+        // Prevent duplicate next-round preparation requests.
+        if (pendingRoundTasks.containsKey(matchId)) {
             return false;
+        }
+
+        int waitSeconds = Math.max(
+                5,
+                plugin.getConfig().getInt(
+                        "matchmaking.respawn-wait-seconds",
+                        30
+                )
+        );
+
+        long maxWaitTicks = waitSeconds * 20L;
+
+        BukkitRunnable waitTask = new BukkitRunnable() {
+
+            long elapsedTicks = 0;
+
+            @Override
+            public void run() {
+
+                if (matchManager.getMatch(matchId) != match
+                        || match.getState()
+                        != DuelMatch.MatchState.ACTIVE) {
+
+                    cancel();
+                    pendingRoundTasks.remove(matchId);
+                    return;
+                }
+
+                if (areParticipantsRespawned(match)) {
+
+                    cancel();
+
+                    // Allow the Bukkit respawn process and other
+                    // respawn-event tasks to finish before preparing.
+                    BukkitTask finalPreparationTask =
+                            Bukkit.getScheduler().runTaskLater(
+                                    plugin,
+                                    () -> {
+
+                                        pendingRoundTasks.remove(matchId);
+
+                                        if (matchManager.getMatch(matchId)
+                                                        != match
+                                                || match.getState()
+                                                != DuelMatch.MatchState.ACTIVE) {
+                                            return;
+                                        }
+
+                                        if (!areParticipantsRespawned(match)) {
+                                            abortMatch(
+                                                    match,
+                                                    arena,
+                                                    "A player was not ready after respawning."
+                                            );
+                                            return;
+                                        }
+
+                                        startNextRoundNow(match, arena);
+                                    },
+                                    2L
+                            );
+
+                    pendingRoundTasks.put(
+                            matchId,
+                            finalPreparationTask
+                    );
+
+                    return;
+                }
+
+                elapsedTicks += 2L;
+
+                if (elapsedTicks >= maxWaitTicks) {
+
+                    cancel();
+                    pendingRoundTasks.remove(matchId);
+
+                    abortMatch(
+                            match,
+                            arena,
+                            "Players did not finish respawning in time."
+            );
+                }
+            }
+
+        };
+
+        BukkitTask task = waitTask.runTaskTimer(
+                plugin,
+                0L,
+                2L
+        );
+
+        pendingRoundTasks.put(matchId, task);
+
+        broadcast(
+                match,
+                ChatColor.YELLOW
+                        + "Waiting for players to respawn before the next round..."
+        );
+
+        return true;
+    }
+
+    /**
+     * Actually starts the next round after everyone is ready.
+     */
+    private void startNextRoundNow(
+            DuelMatch match,
+            DuelArena arena
+    ) {
+
+        if (match == null
+                || match.getState() != DuelMatch.MatchState.ACTIVE) {
+            return;
+        }
+
+        UUID matchId = match.getMatchId();
+
+        if (matchManager.getMatch(matchId) != match) {
+            return;
+        }
+
+        if (arena == null || !isArenaValid(match, arena)) {
+            abortMatch(
+                    match,
+                    arena,
+                    "Arena is invalid for the next round."
+            );
+            return;
+        }
+
+        if (!areParticipantsRespawned(match)) {
+            abortMatch(
+                    match,
+                    arena,
+                    "A player was not ready for the next round."
+            );
+            return;
+        }
+
+        if (!match.advanceRound()) {
+            return;
         }
 
         // Restore original equipment before preparing the new round.
@@ -180,7 +330,7 @@ public final class MatchPreparationManager {
                     arena,
                     "A player could not be prepared for the next round."
             );
-            return false;
+            return;
         }
 
         broadcast(
@@ -193,8 +343,6 @@ public final class MatchPreparationManager {
 
         // false means the existing overall match timer continues.
         startCountdown(match, arena, false);
-
-        return true;
     }
 
     // =========================================================
@@ -209,6 +357,37 @@ public final class MatchPreparationManager {
         return arena.isReady()
                 && arena.getTeamSize() == match.getTeamA().size()
                 && match.getTeamA().size() == match.getTeamB().size();
+    }
+
+    /**
+     * Checks every participant, not only the survivors.
+     *
+     * Eliminated players must finish respawning before the next
+     * round can begin.
+     */
+    private boolean areParticipantsRespawned(DuelMatch match) {
+
+        for (UUID id : match.getTeamA()) {
+            Player player = Bukkit.getPlayer(id);
+
+            if (player == null
+                    || !player.isOnline()
+                    || player.isDead()) {
+                return false;
+            }
+        }
+
+        for (UUID id : match.getTeamB()) {
+            Player player = Bukkit.getPlayer(id);
+
+            if (player == null
+                    || !player.isOnline()
+                    || player.isDead()) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // =========================================================
@@ -246,6 +425,7 @@ public final class MatchPreparationManager {
 
         if (player == null
                 || !player.isOnline()
+                || player.isDead()
                 || spawn == null
                 || !player.teleport(spawn)) {
             return false;
@@ -485,6 +665,12 @@ public final class MatchPreparationManager {
             task.cancel();
         }
 
+        BukkitTask pendingTask = pendingRoundTasks.remove(matchId);
+
+        if (pendingTask != null) {
+            pendingTask.cancel();
+        }
+
         restoreOriginalLocations(matchId);
 
         // Restore original equipment if preparation was interrupted.
@@ -530,6 +716,12 @@ public final class MatchPreparationManager {
         }
 
         countdownTasks.clear();
+
+        for (BukkitTask task : pendingRoundTasks.values()) {
+            task.cancel();
+        }
+
+        pendingRoundTasks.clear();
 
         Set<UUID> matchIds =
                 new HashSet<>(originalLocations.keySet());
