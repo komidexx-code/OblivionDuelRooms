@@ -1,4 +1,3 @@
-
 package com.oblivion.duels;
 
 import org.bukkit.Bukkit;
@@ -657,10 +656,6 @@ public final class MatchDeathListener implements Listener {
     // VIRTUAL LOOT CHEST
     // =========================================================
 
-    /**
-     * Opens the newest shared loot chest the player belongs to.
-     * The database membership check is the access-control check.
-     */
     public void openLoot(Player player) {
 
         if (player == null || !player.isOnline()) {
@@ -732,8 +727,12 @@ public final class MatchDeathListener implements Listener {
         }
 
         if (isInventoryEmpty(inventory)) {
-            databaseManager.deleteLootChest(matchId);
-            liveLootInventories.remove(matchId);
+
+            // Remove the cached inventory only if the database deletion
+            // succeeds. If deletion fails, keep the cache for retry.
+            if (databaseManager.deleteLootChest(matchId)) {
+                liveLootInventories.remove(matchId);
+            }
 
             player.sendMessage(
                     ChatColor.YELLOW
@@ -771,12 +770,57 @@ public final class MatchDeathListener implements Listener {
         );
     }
 
+    /**
+     * Validates that the viewer is authorized for the exact chest
+     * currently open, and that it remains their latest chest.
+     */
+    private boolean isAuthorizedForLootChest(
+            Player player,
+            UUID matchId
+    ) {
+
+        if (player == null
+                || !player.isOnline()
+                || !databaseManager.isConnected()) {
+            return false;
+        }
+
+        DatabaseManager.LootChestData access =
+                databaseManager.findLatestLootChestForPlayer(
+                        player.getUniqueId()
+                );
+
+        return access != null
+                && access.getMatchId().equals(matchId)
+                && access.isWinner(player.getUniqueId());
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onLootChestClick(InventoryClickEvent event) {
 
         Inventory top = event.getView().getTopInventory();
 
         if (!(top.getHolder() instanceof LootChestHolder holder)) {
+            return;
+        }
+
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            event.setCancelled(true);
+            return;
+        }
+
+        UUID matchId = holder.getMatchId();
+
+        // Validate access on every click while the chest is open.
+        if (!isAuthorizedForLootChest(player, matchId)) {
+
+            event.setCancelled(true);
+            player.closeInventory();
+
+            player.sendMessage(
+                    ChatColor.RED
+                            + "You are no longer authorized to access this chest."
+            );
             return;
         }
 
@@ -789,8 +833,9 @@ public final class MatchDeathListener implements Listener {
             event.setCancelled(true);
 
             // No depositing items into the shared chest.
-            if (event.getCursor() != null
-                    && !event.getCursor().getType().isAir()) {
+            ItemStack cursor = event.getCursor();
+
+            if (cursor != null && !cursor.getType().isAir()) {
                 return;
             }
 
@@ -828,34 +873,46 @@ public final class MatchDeathListener implements Listener {
                 top.setItem(rawSlot, null);
             }
 
-            event.getWhoClicked().setItemOnCursor(withdrawn);
-
-            // Persist before allowing the withdrawal to stand.
-            if (!saveVirtualChest(holder.getMatchId(), top)) {
+            // Save chest contents BEFORE giving the item to the player.
+            // If saving fails, restore the chest and do not deliver.
+            if (!saveVirtualChest(matchId, top)) {
 
                 top.setItem(rawSlot, original);
-                event.getWhoClicked().setItemOnCursor(null);
 
-                event.getWhoClicked().sendMessage(
+                player.sendMessage(
                         ChatColor.RED
-                                + "Could not save that withdrawal. Please try again."
+                                + "Could not save that withdrawal. "
+                                + "Your item remains in the chest."
                 );
 
+                player.updateInventory();
                 return;
             }
 
+            // Database save succeeded. Now deliver the withdrawn item.
+            player.setItemOnCursor(withdrawn);
+
+            // If the chest is now empty, try deleting it.
+            // Do not remove the cache if deletion fails.
             if (isInventoryEmpty(top)) {
 
-                if (databaseManager.deleteLootChest(holder.getMatchId())) {
-                    liveLootInventories.remove(holder.getMatchId());
+                if (databaseManager.deleteLootChest(matchId)) {
+                    liveLootInventories.remove(matchId);
+                } else {
+                    plugin.getLogger().warning(
+                            "Empty loot chest could not be deleted: "
+                                    + matchId
+                    );
                 }
             }
 
+            player.updateInventory();
             return;
         }
 
         // Prevent moving items between player inventory and chest
-        // using shift-click, number keys, offhand swap or double-click.
+        // using shift-click, number keys, offhand swap, double-click,
+        // middle-click, dropping, or control-dropping.
         ClickType click = event.getClick();
 
         if (click.isShiftClick()
@@ -875,7 +932,22 @@ public final class MatchDeathListener implements Listener {
 
         Inventory top = event.getView().getTopInventory();
 
-        if (!(top.getHolder() instanceof LootChestHolder)) {
+        if (!(top.getHolder() instanceof LootChestHolder holder)) {
+            return;
+        }
+
+        if (!(event.getWhoClicked() instanceof Player player)
+                || !isAuthorizedForLootChest(
+                        player,
+                        holder.getMatchId()
+        )) {
+
+            event.setCancelled(true);
+
+            if (event.getWhoClicked() instanceof Player playerViewer) {
+                playerViewer.closeInventory();
+            }
+
             return;
         }
 
@@ -888,7 +960,7 @@ public final class MatchDeathListener implements Listener {
         }
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onLootChestClose(InventoryCloseEvent event) {
 
         Inventory top = event.getView().getTopInventory();
@@ -897,18 +969,28 @@ public final class MatchDeathListener implements Listener {
             return;
         }
 
-        if (!saveVirtualChest(holder.getMatchId(), top)) {
-            plugin.getLogger().severe(
-                    "Could not save shared loot chest "
-                            + holder.getMatchId()
-                            + " when it was closed."
-            );
-        }
+        UUID matchId = holder.getMatchId();
 
-        if (isInventoryEmpty(top)
-                && databaseManager.deleteLootChest(holder.getMatchId())) {
+        // Every withdrawal is saved at the time it occurs. Deposits and
+        // drags into the chest are blocked, so do not write stale
+        // inventory contents back into the database on close.
+        //
+        // This prevents an older open view from overwriting newer
+        // persisted chest data.
+        if (isInventoryEmpty(top)) {
 
-            liveLootInventories.remove(holder.getMatchId());
+            if (databaseManager.isConnected()
+                    && databaseManager.deleteLootChest(matchId)) {
+
+                liveLootInventories.remove(matchId);
+
+            } else {
+
+                plugin.getLogger().warning(
+                        "Empty loot chest deletion failed on close: "
+                                + matchId
+                );
+            }
         }
     }
 
@@ -1110,7 +1192,7 @@ public final class MatchDeathListener implements Listener {
             return;
         }
 
-        DuelMatch.WinningTeam roundWinner = match.getWinner();
+    DuelMatch.WinningTeam roundWinner = match.getWinner();
 
         if (roundWinner == DuelMatch.WinningTeam.NONE) {
             return;
@@ -1483,7 +1565,6 @@ public final class MatchDeathListener implements Listener {
             timeout.cancel();
         }
 
-        // Restore original equipment first. Earned loot is delivered after.
         restoreParticipants(match);
 
         distributeLoot(match, winner);
@@ -1651,7 +1732,6 @@ public final class MatchDeathListener implements Listener {
             savedLoot = new HashMap<>();
         }
 
-        // A draw returns each player's earned loot to that player.
         if (winner == DuelMatch.WinningTeam.DRAW
                 || winner == DuelMatch.WinningTeam.NONE) {
 
@@ -1679,7 +1759,6 @@ public final class MatchDeathListener implements Listener {
                         : match.getTeamA()
         );
 
-        // Return winners' own earned loot to them.
         for (UUID winnerId : winningTeam) {
 
             List<ItemStack> ownLoot = savedLoot.get(winnerId);
@@ -1689,7 +1768,6 @@ public final class MatchDeathListener implements Listener {
             }
         }
 
-        // Collect the losing team's loot for the shared chest.
         List<ItemStack> losingLoot = new ArrayList<>();
 
         for (UUID loserId : losingTeam) {
@@ -1728,7 +1806,6 @@ public final class MatchDeathListener implements Listener {
 
         if (!saved) {
 
-            // Do not discard loot if the chest could not be saved.
             List<ItemStack> fallbackLoot =
                     new ArrayList<>(losingLoot);
 
@@ -1746,8 +1823,10 @@ public final class MatchDeathListener implements Listener {
             }
 
             for (ItemStack item : fallbackLoot) {
-                storePendingLoot(winningTeam.get(0),
-                        Collections.singletonList(item));
+                storePendingLoot(
+                        winningTeam.get(0),
+                        Collections.singletonList(item)
+                );
             }
 
             for (UUID winnerId : winningTeam) {
@@ -1765,8 +1844,6 @@ public final class MatchDeathListener implements Listener {
             return;
         }
 
-        // If the 54-slot chest is full, keep excess loot as pending loot
-        // for the winning team instead of silently discarding it.
         for (ItemStack item : leftovers.values()) {
             storePendingLoot(
                     winningTeam.get(0),
@@ -2255,18 +2332,26 @@ public final class MatchDeathListener implements Listener {
             restorePlayerScoreboard(playerId);
         }
 
-        // Persist every cached chest before the database is closed.
-        for (Map.Entry<UUID, Inventory> entry
-                : liveLootInventories.entrySet()) {
+        // Persist cached inventories. Keep cache entries whose save failed
+        // so they are not discarded prematurely during shutdown cleanup.
+        Iterator<Map.Entry<UUID, Inventory>> iterator =
+                liveLootInventories.entrySet().iterator();
 
-            if (!saveVirtualChest(entry.getKey(), entry.getValue())) {
+        while (iterator.hasNext()) {
+
+            Map.Entry<UUID, Inventory> entry = iterator.next();
+
+            UUID matchId = entry.getKey();
+            Inventory inventory = entry.getValue();
+
+            if (saveVirtualChest(matchId, inventory)) {
+                iterator.remove();
+            } else {
                 plugin.getLogger().severe(
-                        "Could not save loot chest during shutdown: "
-                                + entry.getKey()
+                        "FAILED to persist loot chest during shutdown! "
+                                + "Cache retained for match " + matchId
                 );
             }
         }
-
-        liveLootInventories.clear();
     }
-}
+            }
