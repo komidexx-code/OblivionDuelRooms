@@ -1,4 +1,3 @@
-
 package com.oblivion.duels;
 
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
@@ -629,6 +628,7 @@ public final class OblivionDuels extends JavaPlugin
             sender.sendMessage(color(DESCRIPTION + "/duels leave"));
             sender.sendMessage(color(DESCRIPTION + "/duels queue"));
             sender.sendMessage(color(DESCRIPTION + "/duels status"));
+            sender.sendMessage(color(DESCRIPTION + "/duels loot"));
             sender.sendMessage(color(DESCRIPTION + "/duels arena help"));
             sender.sendMessage(color(DESCRIPTION + "/duels setexit <arena>"));
             sender.sendMessage(color(DESCRIPTION + "/duels reload"));
@@ -641,6 +641,10 @@ public final class OblivionDuels extends JavaPlugin
 
         switch (sub) {
 
+            // ==========================================
+            // DUEL MENU
+            // ==========================================
+
             case "menu": {
                 if (!(sender instanceof Player player)) {
                     sender.sendMessage("Players only.");
@@ -650,6 +654,31 @@ public final class OblivionDuels extends JavaPlugin
                 duelMenu.openMenu(player);
                 return true;
             }
+
+            // ==========================================
+            // SHARED VIRTUAL LOOT
+            // ==========================================
+
+            case "loot": {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage("Players only.");
+                    return true;
+                }
+
+                if (matchDeathListener == null) {
+                    sendMessage(player,
+                            "&cLoot storage is currently unavailable."
+                    );
+                    return true;
+                }
+
+                matchDeathListener.openLoot(player);
+                return true;
+            }
+
+            // ==========================================
+            // ARENA EXIT
+            // ==========================================
 
             case "setexit": {
                 if (!isAdmin(sender)) {
@@ -683,6 +712,10 @@ public final class OblivionDuels extends JavaPlugin
                 return true;
             }
 
+            // ==========================================
+            // ARENA MANAGEMENT
+            // ==========================================
+
             case "arena": {
                 if (!isAdmin(sender)) {
                     sendMessage(sender, "&cYou don't have permission.");
@@ -715,6 +748,10 @@ public final class OblivionDuels extends JavaPlugin
                     sendArenaInfo(sender, args[2]);
                     return true;
                 }
+
+                // ==========================================
+                // ARENA TEAM SIZE
+                // ==========================================
 
                 if (action.equals("setsize")) {
                     if (args.length < 4) {
@@ -778,10 +815,18 @@ public final class OblivionDuels extends JavaPlugin
                     return true;
                 }
 
+                // ==========================================
+                // ARENA DELETE
+                // ==========================================
+
                 if (action.equals("delete")) {
                     handleArenaDelete(sender, args);
                     return true;
                 }
+
+                // ==========================================
+                // ARENA WAND
+                // ==========================================
 
                 if (action.equals("wand")) {
                     if (!(sender instanceof Player player)) {
@@ -796,6 +841,10 @@ public final class OblivionDuels extends JavaPlugin
                     sendMessage(player, "&aArena selection wand given.");
                     return true;
                 }
+
+                // ==========================================
+                // ARENA CREATE
+                // ==========================================
 
                 if (action.equals("create")) {
                     if (!(sender instanceof Player player)) {
@@ -837,6 +886,10 @@ public final class OblivionDuels extends JavaPlugin
                     return true;
                 }
 
+                // ==========================================
+                // ARENA REGION
+                // ==========================================
+
                 if (action.equals("setregion")) {
                     if (!(sender instanceof Player player)) {
                         sender.sendMessage("Players only.");
@@ -868,6 +921,10 @@ public final class OblivionDuels extends JavaPlugin
                     sendMessage(player, "&aArena region selected.");
                     return true;
                 }
+
+                // ==========================================
+                // ARENA SPAWNS
+                // ==========================================
 
                 if (action.equals("setspawn")) {
                     if (!(sender instanceof Player player)) {
@@ -908,6 +965,10 @@ public final class OblivionDuels extends JavaPlugin
                     return true;
                 }
 
+                // ==========================================
+                // ARENA SPECTATOR SPAWN
+                // ==========================================
+
                 if (action.equals("setspectator")) {
                     if (!(sender instanceof Player player)) {
                         sender.sendMessage("Players only.");
@@ -928,6 +989,10 @@ public final class OblivionDuels extends JavaPlugin
                     sendMessage(player, "&aSpectator spawn saved.");
                     return true;
                 }
+
+                // ==========================================
+                // ARENA SAVE
+                // ==========================================
 
                 if (action.equals("save")) {
                     if (!(sender instanceof Player player)) {
@@ -967,6 +1032,10 @@ public final class OblivionDuels extends JavaPlugin
                 return true;
             }
 
+            // ==========================================
+            // JOIN QUEUE
+            // ==========================================
+
             case "join": {
                 if (!(sender instanceof Player player)) {
                     sender.sendMessage("Players only.");
@@ -1002,6 +1071,10 @@ public final class OblivionDuels extends JavaPlugin
                 return true;
             }
 
+            // ==========================================
+            // LEAVE QUEUE
+            // ==========================================
+
             case "leave": {
                 if (!(sender instanceof Player player)) {
                     sender.sendMessage("Players only.");
@@ -1024,6 +1097,10 @@ public final class OblivionDuels extends JavaPlugin
                 return true;
             }
 
+            // ==========================================
+            // QUEUE STATUS
+            // ==========================================
+
             case "queue": {
                 sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
                 sender.sendMessage(color(BLUE + "ᴏʙʟɪᴠɪᴏɴ ᴅᴜᴇʟs &8» " + SECONDARY + "ǫᴜᴇᴜᴇ sᴛᴀᴛᴜs"));
@@ -1039,6 +1116,10 @@ public final class OblivionDuels extends JavaPlugin
                 sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
                 return true;
             }
+
+            // ==========================================
+            // PLUGIN STATUS
+            // ==========================================
 
             case "status": {
                 sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
@@ -1060,6 +1141,10 @@ public final class OblivionDuels extends JavaPlugin
                 sender.sendMessage(color(BLUE + "━━━━━━━━━━━━━━━━━━━━━━━━"));
                 return true;
             }
+
+            // ==========================================
+            // RELOAD
+            // ==========================================
 
             case "reload": {
                 if (!isAdmin(sender)) {
@@ -1166,4 +1251,4 @@ public final class OblivionDuels extends JavaPlugin
             }
         }
     }
-}
+            }
